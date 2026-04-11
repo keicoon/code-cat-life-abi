@@ -56,6 +56,7 @@ export class CatPhysics {
   private targetLine = -1;
 
   private animTick = 0;
+  private pathFailCount = 0;
 
   constructor(
     private config: PhysicsConfig = DEFAULT_PHYSICS,
@@ -129,6 +130,12 @@ export class CatPhysics {
     return { left, right };
   }
 
+  private clampToTextEdges(line: number, col: number): number {
+    const edges = this.textEdges(line);
+    if (!edges) { return col; }
+    return Math.max(edges.left, Math.min(edges.right, col));
+  }
+
   // ---- A* Pathfinding ----
 
   private isVerticalPathClear(fromLine: number, toLine: number, col: number): boolean {
@@ -159,6 +166,39 @@ export class CatPhysics {
     }
     if (valid.length === 0) { return -1; }
     return valid[Math.floor(Math.random() * valid.length)];
+  }
+
+  /** Find the valid transit column closest to preferCol, prioritizing overlap with destination */
+  private findNearestValidCol(fromLine: number, toLine: number, preferCol: number): number {
+    const fromEdges = this.textEdges(fromLine);
+    if (!fromEdges) { return -1; }
+    const toEdges = this.textEdges(toLine);
+
+    // Prefer columns valid on BOTH source and destination lines
+    const overlapL = toEdges ? Math.max(fromEdges.left, toEdges.left) : fromEdges.left;
+    const overlapR = toEdges ? Math.min(fromEdges.right, toEdges.right) : fromEdges.right;
+
+    if (overlapL <= overlapR) {
+      const pref = Math.max(overlapL, Math.min(overlapR, preferCol));
+      for (let d = 0; d <= overlapR - overlapL; d++) {
+        for (const c of [pref + d, pref - d]) {
+          if (c >= overlapL && c <= overlapR && this.isVerticalPathClear(fromLine, toLine, c)) {
+            return c;
+          }
+        }
+      }
+    }
+
+    // Fallback: any valid column on source line, nearest to preferCol
+    const pref = Math.max(fromEdges.left, Math.min(fromEdges.right, preferCol));
+    for (let d = 0; d <= fromEdges.right - fromEdges.left; d++) {
+      for (const c of [pref + d, pref - d]) {
+        if (c >= fromEdges.left && c <= fromEdges.right && this.isVerticalPathClear(fromLine, toLine, c)) {
+          return c;
+        }
+      }
+    }
+    return -1;
   }
 
   private getLineNeighbors(line: number): Neighbor[] {
@@ -248,11 +288,29 @@ export class CatPhysics {
 
   // ---- Route execution ----
 
+  /** Post-process A* path: reassign columns to minimize horizontal travel */
+  private optimizeRouteColumns(
+    path: Array<{ line: number; viaCol: number; action: 'jump' | 'fall' }>,
+    startCol: number,
+    startLine: number,
+  ): RouteStep[] {
+    let prevCol = startCol;
+    let prevLine = startLine;
+
+    return path.map(step => {
+      const bestCol = this.findNearestValidCol(prevLine, step.line, prevCol);
+      const col = bestCol >= 0 ? bestCol : step.viaCol;
+      prevCol = col;
+      prevLine = step.line;
+      return { line: step.line, col, action: step.action };
+    });
+  }
+
   private executeNextRouteStep(): void {
     if (!this.route || this.routeIdx >= this.route.length) {
       this.route = null;
       this.setState('run');
-      this.targetCol = this.routeGoalCol;
+      this.targetCol = this.clampToTextEdges(Math.round(this.state.line), this.routeGoalCol);
       this.targetLine = -1;
       return;
     }
@@ -279,7 +337,7 @@ export class CatPhysics {
     const path = this.findPath(currentLine, goalLine);
     if (!path) { return false; }
 
-    this.route = path.map(p => ({ line: p.line, col: p.viaCol, action: p.action }));
+    this.route = this.optimizeRouteColumns(path, Math.round(this.state.col), currentLine);
     this.routeIdx = 0;
     this.executeNextRouteStep();
     return true;
@@ -340,7 +398,17 @@ export class CatPhysics {
 
   private decideNextAction(): void {
     if (this.fish.active) {
-      if (this.planRoute(this.fish.line, this.fish.col)) { return; }
+      if (this.planRoute(this.fish.line, this.fish.col)) {
+        this.pathFailCount = 0;
+        return;
+      }
+      this.pathFailCount++;
+      if (this.pathFailCount >= 3) {
+        // Give up on unreachable fish
+        this.fish.active = false;
+        this.fishSpawnTimer = 0;
+        this.pathFailCount = 0;
+      }
     }
     this.setState('idle');
   }
@@ -408,7 +476,8 @@ export class CatPhysics {
         if (Math.abs(dx) < runSpeed) {
           this.state.col = this.targetCol;
           this.setState('jump');
-          this.targetCol = this.route?.[this.routeIdx - 1]?.col ?? this.targetCol;
+          // Aim for clamped landing position on destination line
+          this.targetCol = this.clampToTextEdges(this.targetLine, this.state.col);
         } else {
           this.state.direction = dx > 0 ? 'right' : 'left';
           this.state.col += (dx > 0 ? 1 : -1) * runSpeed;
@@ -422,7 +491,8 @@ export class CatPhysics {
         if (Math.abs(dx) < runSpeed) {
           this.state.col = this.targetCol;
           this.setState('fall');
-          this.targetCol = this.route?.[this.routeIdx - 1]?.col ?? this.targetCol;
+          // Aim for clamped landing position on destination line
+          this.targetCol = this.clampToTextEdges(this.targetLine, this.state.col);
         } else {
           this.state.direction = dx > 0 ? 'right' : 'left';
           this.state.col += (dx > 0 ? 1 : -1) * runSpeed;
@@ -435,8 +505,9 @@ export class CatPhysics {
         const dy = this.state.line - this.targetLine;
         if (dy > jumpSpeed) {
           this.state.line -= jumpSpeed;
+          // Smooth horizontal movement toward landing col
           const jumpDx = this.targetCol - this.state.col;
-          this.state.col += jumpDx * 0.1;
+          if (Math.abs(jumpDx) > 0.3) { this.state.col += jumpDx * 0.2; }
         } else {
           this.state.line = this.targetLine;
           this.state.col = this.targetCol;
@@ -451,8 +522,9 @@ export class CatPhysics {
         const dy = this.targetLine - this.state.line;
         if (dy > fallSpeed) {
           this.state.line += fallSpeed;
+          // Smooth horizontal movement toward landing col
           const fallDx = this.targetCol - this.state.col;
-          this.state.col += fallDx * 0.1;
+          if (Math.abs(fallDx) > 0.3) { this.state.col += fallDx * 0.2; }
         } else {
           this.state.line = this.targetLine;
           this.state.col = this.targetCol;
@@ -495,6 +567,7 @@ export class CatPhysics {
             this.setState('idle');
             this.fishSpawnTimer = 0;
             this.fish.active = false;
+            this.pathFailCount = 0;
             return;
           }
         }
