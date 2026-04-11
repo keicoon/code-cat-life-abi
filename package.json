@@ -24,6 +24,12 @@
           "default": true,
           "description": "Enable or disable Code Cat"
         },
+        "codeCat.catColor": {
+          "type": "string",
+          "default": "#ffffff",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "Cat color in hex (e.g. #ffffff for white, #ff9900 for orange). Paw prints will match."
+        },
         "codeCat.idleTimeout": {
           "type": "number",
           "default": 5,
@@ -37,6 +43,18 @@
           "minimum": 3,
           "maximum": 30,
           "description": "Seconds between fish spawns"
+        },
+        "codeCat.animationSpeed": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 2.0,
+          "description": "Animation speed multiplier (0.5 = slow, 1.0 = normal, 2.0 = fast)"
+        },
+        "codeCat.showFootprints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show paw print trail behind the cat while running"
         }
       }
     }

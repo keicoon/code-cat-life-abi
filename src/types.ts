@@ -55,6 +55,15 @@ export interface PhysicsConfig {
   idleDuration: number;
 }
 
+export interface ExtensionConfig {
+  enabled: boolean;
+  catColor: string;
+  idleTimeout: number;
+  fishInterval: number;
+  animationSpeed: number;
+  showFootprints: boolean;
+}
+
 export const DEFAULT_PHYSICS: PhysicsConfig = {
   runSpeed: 0.4,
   jumpSpeed: 0.3,

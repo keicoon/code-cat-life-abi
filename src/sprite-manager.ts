@@ -3,11 +3,13 @@ import * as path from 'path';
 import { CatAction, Direction } from './types';
 
 interface SpriteEntry {
-  frames: string[];  // data-uri strings per frame
+  frames: string[];  // raw SVG strings per frame
 }
 
 export class SpriteManager {
-  private sprites: Map<string, SpriteEntry> = new Map();
+  private rawSprites: Map<string, SpriteEntry> = new Map();
+  private cachedColor = '';
+  private coloredCache: Map<string, string[]> = new Map();
 
   constructor(private spritesDir: string) {}
 
@@ -37,31 +39,51 @@ export class SpriteManager {
         const filename = entry.pattern.replace('{i}', String(i));
         const filepath = path.join(this.spritesDir, filename);
         const svg = fs.readFileSync(filepath, 'utf-8');
-        const dataUri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
-        frames.push(dataUri);
+        frames.push(svg);
       }
-      this.sprites.set(entry.action, { frames });
+      this.rawSprites.set(entry.action, { frames });
+    }
+  }
+
+  /** Apply color to SVG by replacing fill="white" with the target color */
+  setColor(hexColor: string): void {
+    if (hexColor === this.cachedColor) { return; }
+    this.cachedColor = hexColor;
+    this.coloredCache.clear();
+
+    for (const [key, entry] of this.rawSprites) {
+      const colored = entry.frames.map(svg => {
+        // Replace fill="white" with the user's color (skip fish which is gold)
+        if (key === 'fish') { return this.toDataUri(svg); }
+        const recolored = svg.replace(/fill="white"/g, `fill="${hexColor}"`);
+        return this.toDataUri(recolored);
+      });
+      this.coloredCache.set(key, colored);
     }
   }
 
   getFrame(action: CatAction, direction: Direction, frame: number): string {
     const mapped = this.mapAction(action);
     const key = `${mapped}_${direction}`;
-    const entry = this.sprites.get(key);
-    if (!entry) {
-      return this.sprites.get('sleep_right')!.frames[0];
+    const frames = this.coloredCache.get(key);
+    if (!frames) {
+      return this.coloredCache.get('sleep_right')![0];
     }
-    return entry.frames[frame % entry.frames.length];
+    return frames[frame % frames.length];
   }
 
   getSpecial(name: 'fish' | 'paw'): string {
-    return this.sprites.get(name)!.frames[0];
+    return this.coloredCache.get(name)![0];
   }
 
   getFrameCount(action: CatAction): number {
     const mapped = this.mapAction(action);
-    const entry = this.sprites.get(`${mapped}_right`);
+    const entry = this.rawSprites.get(`${mapped}_right`);
     return entry ? entry.frames.length : 1;
+  }
+
+  private toDataUri(svg: string): string {
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
   }
 
   private mapAction(action: CatAction): string {

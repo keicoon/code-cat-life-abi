@@ -1,6 +1,20 @@
 import * as vscode from 'vscode';
-import { CatState, FishState, Direction } from './types';
+import { CatState, FishState, ExtensionConfig } from './types';
 import { SpriteManager } from './sprite-manager';
+
+/** Get cat pixel size proportional to editor fontSize */
+function getCatSize(): { width: string; height: string; pawW: string; pawH: string } {
+  const fontSize = vscode.workspace.getConfiguration('editor').get<number>('fontSize') ?? 14;
+  // Cat is roughly 2x font width, 1.4x line height
+  const w = Math.round(fontSize * 2);
+  const h = Math.round(fontSize * 1.4);
+  const pw = Math.round(fontSize * 0.8);
+  const ph = Math.round(fontSize * 0.5);
+  return {
+    width: `${w}px`, height: `${h}px`,
+    pawW: `${pw}px`, pawH: `${ph}px`,
+  };
+}
 
 export class DecorationRenderer {
   private catDecoration: vscode.TextEditorDecorationType | null = null;
@@ -9,7 +23,7 @@ export class DecorationRenderer {
 
   constructor(private sprites: SpriteManager) {}
 
-  renderCat(editor: vscode.TextEditor, state: CatState): void {
+  renderCat(editor: vscode.TextEditor, state: CatState, config: ExtensionConfig): void {
     this.clearCat();
 
     const spriteUri = this.sprites.getFrame(state.action, state.direction, state.frame);
@@ -22,12 +36,14 @@ export class DecorationRenderer {
       ? (0.7 + 0.3 * Math.sin(state.ticksInState * 0.12)).toFixed(2)
       : '1';
 
+    const size = getCatSize();
+
     this.catDecoration = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
-        width: '1.6em',
-        height: '1em',
-        margin: '0 -1.6em 0 0',
+        width: size.width,
+        height: size.height,
+        margin: `0 -${size.width} 0 0`,
         textDecoration: `none;
           background-image: url("${spriteUri}");
           background-size: contain;
@@ -36,7 +52,7 @@ export class DecorationRenderer {
           opacity: ${opacity};
           position: relative;
           z-index: 10;
-          filter: drop-shadow(0 0 3px rgba(255,255,255,0.3));
+          filter: drop-shadow(0 0 3px ${config.catColor}44);
           pointer-events: none;`,
       },
     });
@@ -57,12 +73,16 @@ export class DecorationRenderer {
 
     if (line < 0 || line >= editor.document.lineCount) { return; }
 
+    const size = getCatSize();
+    const fishW = Math.round(parseInt(size.width) * 0.7) + 'px';
+    const fishH = Math.round(parseInt(size.height) * 0.65) + 'px';
+
     this.fishDecoration = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
-        width: '1.2em',
-        height: '0.9em',
-        margin: '0 -1.2em 0 0',
+        width: fishW,
+        height: fishH,
+        margin: `0 -${fishW} 0 0`,
         textDecoration: `none;
           background-image: url("${fishUri}");
           background-size: contain;
@@ -84,12 +104,14 @@ export class DecorationRenderer {
 
     if (line < 0 || line >= editor.document.lineCount) { return; }
 
+    const size = getCatSize();
+
     const decoration = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
-        width: '0.8em',
-        height: '0.5em',
-        margin: '0 -0.8em 0 0',
+        width: size.pawW,
+        height: size.pawH,
+        margin: `0 -${size.pawW} 0 0`,
         textDecoration: `none;
           background-image: url("${pawUri}");
           background-size: contain;
