@@ -20,7 +20,7 @@ VS Code extension: 유저가 일정 시간 입력하지 않으면 하얀 고양�
 
 ## Architecture
 ```
-code-cat/
+code-cat-life-abi/
 ├── src/
 │   ├── extension.ts          # activate/deactivate, idle detection
 │   ├── cat-physics.ts        # terrain parsing, A* pathfinding, state machine

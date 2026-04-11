@@ -1,5 +1,5 @@
 // ============================================================
-//  Code Cat Demo: Gaps & Jumps
+//  Code Cat Life Abi Demo: Gaps & Jumps
 //  — Empty lines force the cat to jump across gaps
 // ============================================================
 

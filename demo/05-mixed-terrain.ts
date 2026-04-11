@@ -1,5 +1,5 @@
 // ============================================================
-//  Code Cat Demo: Mixed Terrain
+//  Code Cat Life Abi Demo: Mixed Terrain
 //  — A bit of everything: dense blocks, gaps, islands, stairs
 //  — Best for general testing!
 // ============================================================
@@ -55,5 +55,5 @@ function checkAuthorizationTokenAndValidatePermissionsForCurrentUser____________
 //  - Fish spawns after 8s → cat chases it
 //  - Type anything → cat vanishes
 //  - Scroll → terrain updates to visible range
-//  - Cmd+, → search "Code Cat" → change settings
+//  - Cmd+, → search "Code Cat Life Abi" → change settings
 // ============================================================

@@ -1,5 +1,5 @@
 // ============================================================
-//  Code Cat Demo: Staircase Tower
+//  Code Cat Life Abi Demo: Staircase Tower
 //  — Adjacent lines with overlapping text = step up/down
 // ============================================================
 

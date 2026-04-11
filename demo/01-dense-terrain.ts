@@ -1,5 +1,5 @@
 // ============================================================
-//  Code Cat Demo: Dense Terrain
+//  Code Cat Life Abi Demo: Dense Terrain
 //  — Lots of consecutive text lines for smooth running
 // ============================================================
 

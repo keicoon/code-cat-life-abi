@@ -1,5 +1,5 @@
 // ============================================================
-//  Code Cat Demo: Scattered Islands
+//  Code Cat Life Abi Demo: Scattered Islands
 //  — Text at different indentation levels = floating platforms
 // ============================================================
 
