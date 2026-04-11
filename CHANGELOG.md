@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.4
+
+- updated extension icon to running cat sprite (cat_2_right)
+
 ## 0.0.3
 
 - polished README for marketplace/release use

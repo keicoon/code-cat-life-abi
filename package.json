@@ -2,7 +2,7 @@
   "name": "code-cat",
   "displayName": "Code Cat",
   "description": "A cute white cat that lives in your editor, treating code as a platformer terrain",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "keicoon15",
   "icon": "icon.png",
   "keywords": [
