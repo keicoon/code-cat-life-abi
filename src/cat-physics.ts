@@ -529,13 +529,12 @@ export class CatPhysics {
           const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
           const maxH = Math.min(this.config.maxJumpCols, Math.max(2, vertDist * 2));
           let jumpTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Per-line cap — re-clamp to text after capping
+          // Best-effort per-line cap — text constraint always wins
           if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
             const cappedCol = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
-            jumpTarget = this.clampToTextEdges(this.targetLine, cappedCol);
-            // If still exceeds (dest text far away), accept — route planner should prevent this
-            if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
-              jumpTarget = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
+            const reclamped = this.clampToTextEdges(this.targetLine, cappedCol);
+            if (Math.abs(reclamped - this.jumpStartCol) < Math.abs(jumpTarget - this.jumpStartCol)) {
+              jumpTarget = reclamped;
             }
           }
           this.targetCol = jumpTarget;
@@ -560,13 +559,12 @@ export class CatPhysics {
           const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
           const maxH = Math.min(this.config.maxJumpCols, Math.max(2, vertDist * 2));
           let fallTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Per-line cap — re-clamp to text after capping
+          // Best-effort per-line cap — text constraint always wins
           if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
             const cappedCol = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
-            fallTarget = this.clampToTextEdges(this.targetLine, cappedCol);
-            // If still exceeds (dest text far away), accept — route planner should prevent this
-            if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
-              fallTarget = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
+            const reclamped = this.clampToTextEdges(this.targetLine, cappedCol);
+            if (Math.abs(reclamped - this.jumpStartCol) < Math.abs(fallTarget - this.jumpStartCol)) {
+              fallTarget = reclamped;
             }
           }
           this.targetCol = fallTarget;
