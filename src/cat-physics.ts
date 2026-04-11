@@ -137,40 +137,56 @@ export class CatPhysics {
     return -1;
   }
 
+  /** Like findVerticalCol but picks a RANDOM valid column for path variety */
+  private findRandomVerticalCol(fromLine: number, toLine: number): number {
+    const edges = this.textEdges(fromLine);
+    if (!edges) { return -1; }
+    const valid: number[] = [];
+    for (let c = edges.left; c <= edges.right; c++) {
+      if (this.isVerticalPathClear(fromLine, toLine, c)) { valid.push(c); }
+    }
+    if (valid.length === 0) { return -1; }
+    return valid[Math.floor(Math.random() * valid.length)];
+  }
+
   private getLineNeighbors(line: number): Neighbor[] {
     const neighbors: Neighbor[] = [];
     const edges = this.textEdges(line);
     if (!edges) { return neighbors; }
 
-    // Jump up: max 3 lines
+    // Jump up: max 3 lines — exponential cost strongly prefers 1-line hops
     for (let up = 1; up <= this.config.maxJumpLines; up++) {
       const target = line - up;
       if (target < 0 || this.isEmptyLine(target)) { continue; }
-      const col = this.findVerticalCol(line, target);
+      const col = this.findRandomVerticalCol(line, target);
       if (col >= 0) {
-        neighbors.push({ line: target, cost: up + 1, viaCol: col, action: 'jump' });
+        // 1-line: cost 2, 2-line: cost 5, 3-line: cost 10
+        const cost = up * up + 1;
+        neighbors.push({ line: target, cost, viaCol: col, action: 'jump' });
       }
     }
 
-    // Fall down: unlimited, land on first text line
+    // Fall down: land on first text line below
     for (let down = 1; down < this.lines.length; down++) {
       const target = line + down;
       if (target >= this.lines.length) { break; }
       if (this.isEmptyLine(target)) { continue; }
-      const col = this.findVerticalCol(line, target);
+      const col = this.findRandomVerticalCol(line, target);
       if (col >= 0) {
         neighbors.push({ line: target, cost: down, viaCol: col, action: 'fall' });
       }
       break;
     }
 
-    // Walk to adjacent overlapping text
+    // Walk to adjacent overlapping text — cheapest option (cost 1)
     for (const d of [-1, 1]) {
       const nb = line + d;
       if (nb >= 0 && nb < this.lines.length && !this.isEmptyLine(nb)) {
         const en = this.textEdges(nb);
         if (en && edges.left <= en.right + 1 && edges.right >= en.left - 1) {
-          const walkCol = Math.max(edges.left, en.left);
+          const overlapL = Math.max(edges.left, en.left);
+          const overlapR = Math.min(edges.right, en.right);
+          const walkCol = overlapL + Math.floor(Math.random() * Math.max(1, overlapR - overlapL + 1));
           neighbors.push({ line: nb, cost: 1, viaCol: walkCol, action: d < 0 ? 'jump' : 'fall' });
         }
       }
@@ -208,7 +224,9 @@ export class CatPhysics {
 
       for (const nb of this.getLineNeighbors(cur.line)) {
         if (closed[nb.line]) { continue; }
-        const g = cur.g + nb.cost;
+        // Random noise creates varied, scenic paths instead of always-optimal routes
+        const noise = 1 + Math.random() * 1.5;
+        const g = cur.g + nb.cost * noise;
         const h = Math.abs(nb.line - toLine);
         open.push({ line: nb.line, g, f: g + h, parent: cur, viaCol: nb.viaCol, action: nb.action });
       }

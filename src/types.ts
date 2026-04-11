@@ -72,6 +72,6 @@ export const DEFAULT_PHYSICS: PhysicsConfig = {
   tickMs: 80,
   fishSpawnInterval: 80,
   fishPostEatDelay: 60,
-  fishChaseTimeout: 500,
+  fishChaseTimeout: 800,
   idleDuration: 50,
 };

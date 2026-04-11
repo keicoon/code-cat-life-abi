@@ -3,12 +3,14 @@ import { CatState, FishState, ExtensionConfig } from './types';
 import { SpriteManager } from './sprite-manager';
 
 /** Get pixel sizes proportional to editor fontSize (returns numbers) */
-function getSizes(): { catW: number; catH: number; fishW: number; fishH: number; pawW: number; pawH: number } {
+function getSizes(): { catW: number; catH: number; liftGap: number; fishW: number; fishH: number; pawW: number; pawH: number } {
   const fontSize = vscode.workspace.getConfiguration('editor').get<number>('fontSize') ?? 14;
   const catW = Math.round(fontSize * 2);
   const catH = Math.round(fontSize * 1.4);
+  // Extra lift so cat's feet clear the text ascenders
+  const liftGap = Math.round(fontSize * 0.4);
   return {
-    catW, catH,
+    catW, catH, liftGap,
     fishW: Math.round(catW * 0.7),
     fishH: Math.round(catH * 0.65),
     pawW: Math.round(fontSize * 0.8),
@@ -38,16 +40,15 @@ export class DecorationRenderer {
       ? (0.7 + 0.3 * Math.sin(state.ticksInState * 0.12)).toFixed(2)
       : '1';
 
-    const { catW, catH } = getSizes();
+    const { catW, catH, liftGap } = getSizes();
 
     const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
         width: `${catW}px`,
         height: `${catH}px`,
-        // negative top margin: takes 0 layout space + shifts cat above text
-        // negative right margin: prevents pushing text to the right
-        margin: `-${catH}px -${catW}px 0 0`,
+        // negative top margin = (catH + liftGap) so cat floats clearly above text
+        margin: `-${catH + liftGap}px -${catW}px 0 0`,
         textDecoration: `none;
           background-image: url("${spriteUri}");
           background-size: contain;
@@ -78,14 +79,14 @@ export class DecorationRenderer {
 
     if (line < 0 || line >= editor.document.lineCount) { this.clearFish(); return; }
 
-    const { fishW, fishH } = getSizes();
+    const { fishW, fishH, liftGap } = getSizes();
 
     const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
         width: `${fishW}px`,
         height: `${fishH}px`,
-        margin: `-${fishH}px -${fishW}px 0 0`,
+        margin: `-${fishH + liftGap}px -${fishW}px 0 0`,
         textDecoration: `none;
           background-image: url("${fishUri}");
           background-size: contain;
@@ -117,8 +118,8 @@ export class DecorationRenderer {
         contentText: '',
         width: `${pawW}px`,
         height: `${pawH}px`,
-        // Paw prints also zero-layout-space, floating above the text
-        margin: `-${pawH}px -${pawW}px 0 0`,
+        // Paw prints stay at ground level (on text), only cancel width
+        margin: `0 -${pawW}px 0 0`,
         textDecoration: `none;
           background-image: url("${pawUri}");
           background-size: contain;
