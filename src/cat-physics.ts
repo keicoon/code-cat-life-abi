@@ -457,7 +457,10 @@ export class CatPhysics {
     this.state.col = this.targetCol;
     this.targetLine = -1;
     this.checkFishEat();
-    if (this.state.action === action) { this.executeNextRouteStep(); }
+    if (this.state.action === action) {
+      this.setState('land');
+      this.state.frame = 0;
+    }
   }
 
   private executeNextRouteStep(): void {
@@ -703,6 +706,14 @@ export class CatPhysics {
 
       case 'fall': {
         this.tickVerticalMove('fall', fallSpeed, runSpeed);
+        break;
+      }
+
+      case 'land': {
+        this.state.frame = 0;
+        if (this.state.ticksInState >= this.config.landingPauseDuration) {
+          this.executeNextRouteStep();
+        }
         break;
       }
     }

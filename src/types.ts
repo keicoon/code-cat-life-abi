@@ -6,6 +6,7 @@ export type CatAction =
   | 'run'
   | 'jump'
   | 'fall'
+  | 'land'
   | 'eat'
   | 'post_eat'
   | 'surprise'
@@ -43,6 +44,7 @@ export interface PhysicsConfig {
   runSpeed: number;
   jumpSpeed: number;
   fallSpeed: number;
+  landingPauseDuration: number;
   maxJumpLines: number;
   tickMs: number;
   quickFishDelay: number;
@@ -81,6 +83,7 @@ export const DEFAULT_PHYSICS: PhysicsConfig = {
   runSpeed: 0.4,
   jumpSpeed: 0.2,
   fallSpeed: 0.2,
+  landingPauseDuration: 3,
   maxJumpLines: 3,
   tickMs: 80,
   quickFishDelay: 10,

@@ -23,6 +23,8 @@ export class SpriteManager {
       { action: 'jump_left', files: ['cat_jump_left.svg'] },
       { action: 'fall_right', files: ['cat_fall_right.svg'] },
       { action: 'fall_left', files: ['cat_fall_left.svg'] },
+      { action: 'crouch_right', files: ['cat_crouch_right.svg'] },
+      { action: 'crouch_left', files: ['cat_crouch_left.svg'] },
       { action: 'eat_right', files: ['cat_eat_0_right.svg', 'cat_eat_1_right.svg'] },
       { action: 'eat_left', files: ['cat_eat_0_left.svg', 'cat_eat_1_left.svg'] },
       { action: 'surprise_right', files: ['cat_surprise_right.svg'] },
@@ -92,6 +94,8 @@ export class SpriteManager {
       case 'idle':
       case 'sleep':
         return 'sleep';
+      case 'land':
+        return 'crouch';
       case 'post_eat':
         return 'eat';
       default:

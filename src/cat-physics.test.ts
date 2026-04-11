@@ -311,6 +311,57 @@ function testVisibleRangeConstraint(): void {
   }
 }
 
+function testLandingPauseSeparatesConsecutiveVerticalMoves(): void {
+  console.log('\n▸ landing pause separates consecutive vertical moves');
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
+  physics.updateTerrain(TERRAIN_UNIFORM);
+  physics.spawn(4);
+
+  const internal = physics as any;
+  internal.state.line = 4;
+  internal.state.col = 0;
+  internal.state.direction = 'right';
+
+  assert(internal.planRoute(1, 10), 'Route for repeated jumps is planned');
+
+  let sawVerticalEnd = false;
+  let sawSecondVerticalStart = false;
+  let landingTicks = 0;
+
+  for (let i = 0; i < 200; i++) {
+    const prev = physics.getState();
+    const state = physics.tick();
+
+    if ((prev.action === 'jump' || prev.action === 'fall') && state.action === 'land') {
+      sawVerticalEnd = true;
+      landingTicks = 1;
+      continue;
+    }
+
+    if (sawVerticalEnd && state.action === 'land') {
+      landingTicks++;
+      continue;
+    }
+
+    if (
+      sawVerticalEnd &&
+      (state.action === 'jump' || state.action === 'fall') &&
+      prev.action !== state.action
+    ) {
+      sawSecondVerticalStart = true;
+      break;
+    }
+  }
+
+  assert(sawVerticalEnd, 'A landing pause occurs after the first vertical move');
+  assert(
+    landingTicks === DEFAULT_PHYSICS.landingPauseDuration,
+    'Landing pause lasts for the configured number of ticks',
+    `got ${landingTicks} ticks`,
+  );
+  assert(sawSecondVerticalStart, 'Route resumes with another vertical move after the landing pause');
+}
+
 function testPostEatHoldsLastPoseUntilRespawn(): void {
   console.log('\n▸ post-eat delay holds the last eat pose');
   const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 40, fishSessionCount: 2 });
@@ -366,6 +417,7 @@ testGoalDirectedRouteUsesProgressiveDiagonalStride();
 testAlignedGoalRouteUsesTemporaryDiagonalThenSettles();
 testMultiLineVerticalStrideScalesWithLineDistance();
 testMultiLineVerticalStrideFallsBackToZeroWhenLandingIsImpossible();
+testLandingPauseSeparatesConsecutiveVerticalMoves();
 testPostEatHoldsLastPoseUntilRespawn();
 testSessionEndSleepsUntilRespawn();
 testVisibleRangeConstraint();

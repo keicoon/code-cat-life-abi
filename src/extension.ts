@@ -75,6 +75,8 @@ function formatActionLabel(action: string): string {
       return 'eating';
     case 'sleep':
       return 'sleeping';
+    case 'land':
+      return 'landing pause';
     case 'surprise':
       return 'surprised';
     default:
