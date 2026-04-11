@@ -374,7 +374,7 @@ export class CatPhysics {
   }
 
   private eatFish(): void {
-    this.fish.active = false;
+    // Fish stays visible during eat animation
     this.fishEaten++;
     this.route = null;
     this.callbacks?.onFishEaten(this.fishEaten);
@@ -429,7 +429,7 @@ export class CatPhysics {
           this.setState('surprise');
         }
       }
-    } else {
+    } else if (this.state.action !== 'eat') {
       this.fishChaseTicks++;
       if (this.fishChaseTicks >= this.config.fishChaseTimeout) {
         this.fish.active = false;
@@ -457,6 +457,7 @@ export class CatPhysics {
       case 'eat':
         this.state.frame = Math.floor(this.state.ticksInState / 4) % 2;
         if (this.state.ticksInState >= this.config.eatDuration) {
+          this.fish.active = false;
           this.setState('idle');
           this.fishSpawnTimer = -this.config.fishPostEatDelay;
         }
@@ -518,8 +519,6 @@ export class CatPhysics {
       }
 
       case 'jump': {
-        // Frame 0 = crouch (wind-up), frame 1 = jump
-        this.state.frame = Math.min(1, Math.floor(this.state.ticksInState / 3));
         const totalDy = this.jumpStartLine - this.targetLine;
         const currentDy = this.state.line - this.targetLine;
         if (currentDy > jumpSpeed) {
@@ -540,8 +539,6 @@ export class CatPhysics {
       }
 
       case 'fall': {
-        // Frame 0 = crouch (wind-up), frame 1 = fall
-        this.state.frame = Math.min(1, Math.floor(this.state.ticksInState / 3));
         const totalDy = this.targetLine - this.jumpStartLine;
         const currentDy = this.targetLine - this.state.line;
         if (currentDy > fallSpeed) {

@@ -3,11 +3,19 @@ import { CatState, FishState, ExtensionConfig } from './types';
 import { SpriteManager } from './sprite-manager';
 
 /** Get pixel sizes proportional to editor fontSize (returns numbers) */
-function getSizes(): { catW: number; catH: number; liftGap: number; fishW: number; fishH: number; pawW: number; pawH: number } {
-  const fontSize = vscode.workspace.getConfiguration('editor').get<number>('fontSize') ?? 14;
+function getSizes(): {
+  catW: number; catH: number; liftGap: number;
+  fishW: number; fishH: number;
+  pawW: number; pawH: number;
+  lineHeightPx: number; charWidthPx: number;
+} {
+  const editorCfg = vscode.workspace.getConfiguration('editor');
+  const fontSize = editorCfg.get<number>('fontSize') ?? 14;
+  const lineHeight = editorCfg.get<number>('lineHeight') ?? 0;
+  const lineHeightPx = lineHeight > 0 ? lineHeight : Math.round(fontSize * 1.5);
+  const charWidthPx = Math.round(fontSize * 0.6);
   const catW = Math.round(fontSize * 2);
   const catH = Math.round(fontSize * 1.4);
-  // Extra lift so cat's feet clear the text ascenders
   const liftGap = Math.round(fontSize * 0.4);
   return {
     catW, catH, liftGap,
@@ -15,6 +23,8 @@ function getSizes(): { catW: number; catH: number; liftGap: number; fishW: numbe
     fishH: Math.round(catH * 0.65),
     pawW: Math.round(fontSize * 0.8),
     pawH: Math.round(fontSize * 0.5),
+    lineHeightPx,
+    charWidthPx,
   };
 }
 
@@ -31,37 +41,43 @@ export class DecorationRenderer {
    */
   renderCat(editor: vscode.TextEditor, state: CatState, config: ExtensionConfig): void {
     const spriteUri = this.sprites.getFrame(state.action, state.direction, state.frame);
-    const line = Math.round(state.line);
-    const col = Math.round(state.col);
 
-    if (line < 0 || line >= editor.document.lineCount) { this.clearCat(); return; }
+    // Integer anchor for decoration placement
+    const baseLine = Math.floor(state.line);
+    const baseCol = Math.round(state.col);
 
-    const opacity = '1';
+    if (baseLine < 0 || baseLine >= editor.document.lineCount) { this.clearCat(); return; }
 
-    const { catW, catH, liftGap } = getSizes();
+    const { catW, catH, liftGap, lineHeightPx, charWidthPx } = getSizes();
+
+    // Smooth sub-pixel offset via CSS transform (eliminates line/col snap)
+    const fracLine = state.line - baseLine;
+    const fracCol = state.col - baseCol;
+    const offsetY = Math.round(fracLine * lineHeightPx);
+    const offsetX = Math.round(fracCol * charWidthPx);
 
     const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
         width: `${catW}px`,
         height: `${catH}px`,
-        // negative top margin = (catH + liftGap) so cat floats clearly above text
         margin: `-${catH + liftGap}px -${catW}px 0 0`,
         textDecoration: `none;
+          display: inline-block;
           background-image: url("${spriteUri}");
           background-size: contain;
           background-repeat: no-repeat;
           background-position: bottom center;
-          opacity: ${opacity};
           z-index: 10;
           filter: drop-shadow(0 0 3px ${config.catColor}44);
-          pointer-events: none;`,
+          pointer-events: none;
+          transform: translate(${offsetX}px, ${offsetY}px);`,
       },
     });
 
-    const lineLength = editor.document.lineAt(line).text.length;
-    const safeCol = Math.min(col, Math.max(0, lineLength));
-    const range = new vscode.Range(line, safeCol, line, safeCol);
+    const lineLength = editor.document.lineAt(baseLine).text.length;
+    const safeCol = Math.min(baseCol, Math.max(0, lineLength));
+    const range = new vscode.Range(baseLine, safeCol, baseLine, safeCol);
 
     // Set new first, then dispose old → no visual gap between frames
     editor.setDecorations(newDeco, [range]);
