@@ -11,6 +11,7 @@ let sprites: SpriteManager;
 let tickInterval: NodeJS.Timeout | null = null;
 let idleTimeout: NodeJS.Timeout | null = null;
 let catActive = false;
+let isRendering = false;
 let lastFootprintCol = -999;
 let currentConfig: ExtensionConfig;
 let log: vscode.OutputChannel;
@@ -101,7 +102,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Listen for selection changes (cursor movement)
   const selectionListener = vscode.window.onDidChangeTextEditorSelection(() => {
-    if (!currentConfig.enabled) { return; }
+    if (!currentConfig.enabled || !catActive) { return; }
     despawnCat();
     resetIdleTimer();
   });
@@ -109,14 +110,19 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Listen for active editor changes
   const editorChangeListener = vscode.window.onDidChangeActiveTextEditor(() => {
+    if (!catActive) {
+      if (currentConfig.enabled) { resetIdleTimer(); }
+      return;
+    }
     despawnCat();
     if (currentConfig.enabled) { resetIdleTimer(); }
   });
   context.subscriptions.push(editorChangeListener);
 
   // Listen for scroll — despawn cat + reset idle timer
+  // Guard against feedback loop: decoration updates can trigger visible-range changes
   const scrollListener = vscode.window.onDidChangeTextEditorVisibleRanges(() => {
-    if (!currentConfig.enabled) { return; }
+    if (!currentConfig.enabled || !catActive || isRendering) { return; }
     despawnCat();
     resetIdleTimer();
   });
@@ -170,11 +176,13 @@ function tickCat(): void {
     const state = physics.tick();
     const fish = physics.getFish();
 
-    // Render cat with config
+    // Render cat with config (suppress scroll listener during decoration updates)
+    isRendering = true;
     renderer.renderCat(editor, state, currentConfig);
 
     // Render fish
     renderer.renderFish(editor, fish);
+    isRendering = false;
 
     // Footprints while running (if enabled)
     if (currentConfig.showFootprints) {
@@ -187,16 +195,22 @@ function tickCat(): void {
       }
     }
   } catch (e: any) {
+    isRendering = false;
     log.appendLine(`ERROR in tick: ${e.message}\n${e.stack}`);
     despawnCat();
+    resetIdleTimer();
   }
 }
 
 function despawnCat(): void {
   catActive = false;
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
-  renderer?.clearAll();
-  physics?.reset();
+  try {
+    renderer?.clearAll();
+    physics?.reset();
+  } catch (e: any) {
+    log?.appendLine(`ERROR in despawn: ${e.message}`);
+  }
 }
 
 export function deactivate() {

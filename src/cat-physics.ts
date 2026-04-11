@@ -718,11 +718,13 @@ export class CatPhysics {
 
   reset(): void {
     this.setState('idle');
+    this.state.line = Math.round(this.state.line);
     this.fish.active = false;
     this.fishSpawnTimer = 0;
     this.route = null;
     this.plannedLandingCol = -1;
     this.fishConsecutiveCount = 0;
+    this.targetLine = -1;
     const edges = this.textEdges(this.state.line);
     if (edges) { this.state.col = edges.left; }
   }

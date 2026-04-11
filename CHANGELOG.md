@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.6
+
+- fixed cat permanently disappearing after repeated spawn/despawn cycles
+- fixed crash in physics reset when cat was mid-jump/fall (fractional line access)
+- added rendering guard to prevent decoration updates from triggering scroll listener feedback loop
+- added safety guards to event handlers to skip unnecessary despawn when cat is inactive
+
 ## 0.0.5
 
 - fixed preview GIF reference in README
