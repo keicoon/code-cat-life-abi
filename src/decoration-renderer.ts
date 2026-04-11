@@ -2,17 +2,17 @@ import * as vscode from 'vscode';
 import { CatState, FishState, ExtensionConfig } from './types';
 import { SpriteManager } from './sprite-manager';
 
-/** Get cat pixel size proportional to editor fontSize */
-function getCatSize(): { width: string; height: string; pawW: string; pawH: string } {
+/** Get pixel sizes proportional to editor fontSize (returns numbers) */
+function getSizes(): { catW: number; catH: number; fishW: number; fishH: number; pawW: number; pawH: number } {
   const fontSize = vscode.workspace.getConfiguration('editor').get<number>('fontSize') ?? 14;
-  // Cat is roughly 2x font width, 1.4x line height
-  const w = Math.round(fontSize * 2);
-  const h = Math.round(fontSize * 1.4);
-  const pw = Math.round(fontSize * 0.8);
-  const ph = Math.round(fontSize * 0.5);
+  const catW = Math.round(fontSize * 2);
+  const catH = Math.round(fontSize * 1.4);
   return {
-    width: `${w}px`, height: `${h}px`,
-    pawW: `${pw}px`, pawH: `${ph}px`,
+    catW, catH,
+    fishW: Math.round(catW * 0.7),
+    fishH: Math.round(catH * 0.65),
+    pawW: Math.round(fontSize * 0.8),
+    pawH: Math.round(fontSize * 0.5),
   };
 }
 
@@ -23,34 +23,37 @@ export class DecorationRenderer {
 
   constructor(private sprites: SpriteManager) {}
 
+  /**
+   * Render cat above the text line (negative top margin = zero layout space + float above).
+   * New decoration is set BEFORE disposing old one to eliminate flicker.
+   */
   renderCat(editor: vscode.TextEditor, state: CatState, config: ExtensionConfig): void {
-    this.clearCat();
-
     const spriteUri = this.sprites.getFrame(state.action, state.direction, state.frame);
     const line = Math.round(state.line);
     const col = Math.round(state.col);
 
-    if (line < 0 || line >= editor.document.lineCount) { return; }
+    if (line < 0 || line >= editor.document.lineCount) { this.clearCat(); return; }
 
     const opacity = state.action === 'idle' || state.action === 'sleep'
       ? (0.7 + 0.3 * Math.sin(state.ticksInState * 0.12)).toFixed(2)
       : '1';
 
-    const size = getCatSize();
+    const { catW, catH } = getSizes();
 
-    this.catDecoration = vscode.window.createTextEditorDecorationType({
+    const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
-        width: size.width,
-        height: size.height,
-        margin: `0 -${size.width} 0 0`,
+        width: `${catW}px`,
+        height: `${catH}px`,
+        // negative top margin: takes 0 layout space + shifts cat above text
+        // negative right margin: prevents pushing text to the right
+        margin: `-${catH}px -${catW}px 0 0`,
         textDecoration: `none;
           background-image: url("${spriteUri}");
           background-size: contain;
           background-repeat: no-repeat;
           background-position: bottom center;
           opacity: ${opacity};
-          position: relative;
           z-index: 10;
           filter: drop-shadow(0 0 3px ${config.catColor}44);
           pointer-events: none;`,
@@ -60,29 +63,29 @@ export class DecorationRenderer {
     const lineLength = editor.document.lineAt(line).text.length;
     const safeCol = Math.min(col, Math.max(0, lineLength));
     const range = new vscode.Range(line, safeCol, line, safeCol);
-    editor.setDecorations(this.catDecoration, [range]);
+
+    // Set new first, then dispose old → no visual gap between frames
+    editor.setDecorations(newDeco, [range]);
+    this.catDecoration?.dispose();
+    this.catDecoration = newDeco;
   }
 
   renderFish(editor: vscode.TextEditor, fish: FishState): void {
-    this.clearFish();
-    if (!fish.active) { return; }
+    if (!fish.active) { this.clearFish(); return; }
 
     const fishUri = this.sprites.getSpecial('fish');
-    const line = fish.line;
-    const col = fish.col;
+    const { line, col } = fish;
 
-    if (line < 0 || line >= editor.document.lineCount) { return; }
+    if (line < 0 || line >= editor.document.lineCount) { this.clearFish(); return; }
 
-    const size = getCatSize();
-    const fishW = Math.round(parseInt(size.width) * 0.7) + 'px';
-    const fishH = Math.round(parseInt(size.height) * 0.65) + 'px';
+    const { fishW, fishH } = getSizes();
 
-    this.fishDecoration = vscode.window.createTextEditorDecorationType({
+    const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
-        width: fishW,
-        height: fishH,
-        margin: `0 -${fishW} 0 0`,
+        width: `${fishW}px`,
+        height: `${fishH}px`,
+        margin: `-${fishH}px -${fishW}px 0 0`,
         textDecoration: `none;
           background-image: url("${fishUri}");
           background-size: contain;
@@ -96,7 +99,10 @@ export class DecorationRenderer {
     const lineLength = editor.document.lineAt(line).text.length;
     const safeCol = Math.min(col, Math.max(0, lineLength));
     const range = new vscode.Range(line, safeCol, line, safeCol);
-    editor.setDecorations(this.fishDecoration, [range]);
+
+    editor.setDecorations(newDeco, [range]);
+    this.fishDecoration?.dispose();
+    this.fishDecoration = newDeco;
   }
 
   addFootprint(editor: vscode.TextEditor, line: number, col: number): void {
@@ -104,14 +110,15 @@ export class DecorationRenderer {
 
     if (line < 0 || line >= editor.document.lineCount) { return; }
 
-    const size = getCatSize();
+    const { pawW, pawH } = getSizes();
 
     const decoration = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
-        width: size.pawW,
-        height: size.pawH,
-        margin: `0 -${size.pawW} 0 0`,
+        width: `${pawW}px`,
+        height: `${pawH}px`,
+        // Paw prints also zero-layout-space, floating above the text
+        margin: `-${pawH}px -${pawW}px 0 0`,
         textDecoration: `none;
           background-image: url("${pawUri}");
           background-size: contain;
