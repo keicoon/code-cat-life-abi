@@ -61,6 +61,20 @@ export interface ExtensionConfig {
   fishSessionCount: number;
   animationSpeed: number;
   showFootprints: boolean;
+  debugMovementLogs: boolean;
+}
+
+export interface PhysicsDebugSnapshot {
+  targetLine: number;
+  targetCol: number;
+  plannedLandingCol: number;
+  jumpStartLine: number;
+  jumpStartCol: number;
+  routeIdx: number;
+  routeLength: number;
+  routeGoalCol: number;
+  fishSpawnTimer: number;
+  fishChaseTicks: number;
 }
 
 export const DEFAULT_PHYSICS: PhysicsConfig = {

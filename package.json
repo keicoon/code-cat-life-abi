@@ -32,6 +32,10 @@
       {
         "command": "codeCatLifeAbi.toggle",
         "title": "Code Cat Life Abi: Toggle"
+      },
+      {
+        "command": "codeCatLifeAbi.showLogs",
+        "title": "Code Cat Life Abi: Show Logs"
       }
     ],
     "icons": {
@@ -89,6 +93,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show paw print trail behind the cat while running"
+        },
+        "codeCatLifeAbi.debugMovementLogs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log movement, despawn/reset reasons, and vertical transition diagnostics to the Code Cat Life Abi output channel"
         }
       }
     }

@@ -5,6 +5,7 @@ import {
   TextEdge,
   RouteStep,
   PhysicsConfig,
+  PhysicsDebugSnapshot,
   DEFAULT_PHYSICS,
 } from './types';
 
@@ -715,6 +716,20 @@ export class CatPhysics {
   getState(): CatState { return { ...this.state }; }
   getFish(): FishState { return { ...this.fish }; }
   getFishEaten(): number { return this.fishEaten; }
+  getDebugSnapshot(): PhysicsDebugSnapshot {
+    return {
+      targetLine: this.targetLine,
+      targetCol: this.targetCol,
+      plannedLandingCol: this.plannedLandingCol,
+      jumpStartLine: this.jumpStartLine,
+      jumpStartCol: this.jumpStartCol,
+      routeIdx: this.routeIdx,
+      routeLength: this.route?.length ?? 0,
+      routeGoalCol: this.routeGoalCol,
+      fishSpawnTimer: this.fishSpawnTimer,
+      fishChaseTicks: this.fishChaseTicks,
+    };
+  }
 
   reset(): void {
     this.setState('idle');

@@ -3,7 +3,7 @@ import * as path from 'path';
 import { CatPhysics } from './cat-physics';
 import { DecorationRenderer } from './decoration-renderer';
 import { SpriteManager } from './sprite-manager';
-import { DEFAULT_PHYSICS, ExtensionConfig } from './types';
+import { CatState, DEFAULT_PHYSICS, ExtensionConfig, PhysicsDebugSnapshot } from './types';
 
 let physics: CatPhysics;
 let renderer: DecorationRenderer;
@@ -14,9 +14,10 @@ let catActive = false;
 let isRendering = false;
 let lastFootprintCol = -999;
 let currentConfig: ExtensionConfig;
-let log: vscode.OutputChannel;
+let log: vscode.LogOutputChannel;
 let statusBarItem: vscode.StatusBarItem | null = null;
 let statusState = 'sleep';
+let lastTickAt = 0;
 
 function readConfig(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration('codeCatLifeAbi');
@@ -29,6 +30,7 @@ function readConfig(): ExtensionConfig {
     fishSessionCount: cfg.get<number>('fishSessionCount', 5),
     animationSpeed: cfg.get<number>('animationSpeed', 1.0),
     showFootprints: cfg.get<boolean>('showFootprints', true),
+    debugMovementLogs: cfg.get<boolean>('debugMovementLogs', false),
   };
 }
 
@@ -55,6 +57,10 @@ function applyConfig(): void {
   });
   statusState = currentConfig.enabled ? 'sleep' : 'disabled';
   updateStatusBar();
+  if (currentConfig.debugMovementLogs) {
+    log.info('movement diagnostics enabled');
+    showLogs(true);
+  }
 }
 
 function formatActionLabel(action: string): string {
@@ -73,6 +79,88 @@ function formatActionLabel(action: string): string {
       return 'surprised';
     default:
       return action;
+  }
+}
+
+function debugEnabled(): boolean {
+  return !!currentConfig?.debugMovementLogs;
+}
+
+function debugLog(message: string): void {
+  if (!debugEnabled()) { return; }
+  log.info(`[debug] ${message}`);
+}
+
+function showLogs(preserveFocus = true): void {
+  log.show(preserveFocus);
+}
+
+function formatState(state: CatState): string {
+  return `${state.action} line=${state.line.toFixed(2)} col=${state.col.toFixed(2)} dir=${state.direction} ticks=${state.ticksInState}`;
+}
+
+function formatSnapshot(snapshot: PhysicsDebugSnapshot | null): string {
+  if (!snapshot) { return 'snapshot=n/a'; }
+  return [
+    `target=(${snapshot.targetLine},${snapshot.targetCol.toFixed(2)})`,
+    `jumpStart=(${snapshot.jumpStartLine},${snapshot.jumpStartCol.toFixed(2)})`,
+    `plannedLanding=${snapshot.plannedLandingCol.toFixed(2)}`,
+    `route=${snapshot.routeIdx}/${snapshot.routeLength}`,
+    `goalCol=${snapshot.routeGoalCol}`,
+    `timers=spawn:${snapshot.fishSpawnTimer},chase:${snapshot.fishChaseTicks}`,
+  ].join(' ');
+}
+
+function getPhysicsSnapshot(): PhysicsDebugSnapshot | null {
+  try {
+    return physics?.getDebugSnapshot() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function describeRenderAnchor(editor: vscode.TextEditor, state: CatState): string {
+  const editorCfg = vscode.workspace.getConfiguration('editor');
+  const fontSize = editorCfg.get<number>('fontSize') ?? 14;
+  const lineHeight = editorCfg.get<number>('lineHeight') ?? 0;
+  const lineHeightPx = lineHeight > 0 ? lineHeight : Math.round(fontSize * 1.5);
+  const charWidthPx = Math.round(fontSize * 0.6);
+  const baseLine = Math.floor(state.line);
+  const baseCol = Math.round(state.col);
+  const lineLength = baseLine >= 0 && baseLine < editor.document.lineCount
+    ? editor.document.lineAt(baseLine).text.length
+    : 0;
+  const safeCol = Math.min(baseCol, Math.max(0, lineLength));
+  const colDrift = baseCol - safeCol;
+  const fracLine = state.line - baseLine;
+  const fracCol = state.col - baseCol;
+  const offsetY = Math.round(fracLine * lineHeightPx);
+  const offsetX = Math.round((fracCol + colDrift) * charWidthPx);
+  return `anchor=(${baseLine},${safeCol}) rawBaseCol=${baseCol} offset=(${offsetX},${offsetY})`;
+}
+
+function maybeLogTickAnomaly(prev: CatState, state: CatState): void {
+  if (!debugEnabled()) { return; }
+
+  const runSpeed = DEFAULT_PHYSICS.runSpeed * currentConfig.animationSpeed;
+  const jumpSpeed = DEFAULT_PHYSICS.jumpSpeed * currentConfig.animationSpeed;
+  const fallSpeed = DEFAULT_PHYSICS.fallSpeed * currentConfig.animationSpeed;
+  const deltaCol = Math.abs(state.col - prev.col);
+  const deltaLine = Math.abs(state.line - prev.line);
+  const inVertical = (
+    prev.action === 'jump' ||
+    prev.action === 'fall' ||
+    state.action === 'jump' ||
+    state.action === 'fall'
+  );
+
+  if (!inVertical) { return; }
+
+  if (deltaCol > (runSpeed * 2.2) || deltaLine > (Math.max(jumpSpeed, fallSpeed) * 1.2)) {
+    debugLog(
+      `movement anomaly dLine=${deltaLine.toFixed(2)} dCol=${deltaCol.toFixed(2)} ` +
+      `prev={${formatState(prev)}} next={${formatState(state)}} ${formatSnapshot(getPhysicsSnapshot())}`,
+    );
   }
 }
 
@@ -102,16 +190,16 @@ function updateStatusBar(): void {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-  log = vscode.window.createOutputChannel('Code Cat Life Abi');
-  log.appendLine('Code Cat Life Abi activating...');
+  log = vscode.window.createOutputChannel('Code Cat Life Abi', { log: true });
+  log.info('Code Cat Life Abi activating...');
 
   const spritesDir = path.join(context.extensionPath, 'sprites');
   sprites = new SpriteManager(spritesDir);
   try {
     await sprites.load();
-    log.appendLine(`Sprites loaded from ${spritesDir}`);
+    log.info(`Sprites loaded from ${spritesDir}`);
   } catch (e: any) {
-    log.appendLine(`ERROR loading sprites: ${e.message}`);
+    log.error(`ERROR loading sprites: ${e.message}`);
     vscode.window.showErrorMessage(`Code Cat Life Abi: Failed to load sprites — ${e.message}`);
     return;
   }
@@ -124,7 +212,12 @@ export async function activate(context: vscode.ExtensionContext) {
   statusBarItem.command = 'codeCatLifeAbi.showStatus';
   context.subscriptions.push(statusBarItem);
   applyConfig();
-  log.appendLine(`Config: ${JSON.stringify(currentConfig)}`);
+  log.info(`Config: ${JSON.stringify(currentConfig)}`);
+
+  const showLogsCmd = vscode.commands.registerCommand('codeCatLifeAbi.showLogs', () => {
+    showLogs(false);
+  });
+  context.subscriptions.push(showLogsCmd);
 
   const showStatusCmd = vscode.commands.registerCommand('codeCatLifeAbi.showStatus', () => {
     if (!currentConfig.enabled) {
@@ -146,7 +239,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // React to config changes — despawn first to avoid stale physics state
   const configListener = vscode.workspace.onDidChangeConfiguration(e => {
     if (e.affectsConfiguration('codeCatLifeAbi')) {
-      despawnCat();
+      despawnCat('config-change');
       applyConfig();
       if (currentConfig.enabled) { resetIdleTimer(); }
     }
@@ -156,7 +249,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Listen for text changes (user is typing)
   const textChangeListener = vscode.workspace.onDidChangeTextDocument(() => {
     if (!currentConfig.enabled) { return; }
-    despawnCat();
+    despawnCat('text-change');
     resetIdleTimer();
   });
   context.subscriptions.push(textChangeListener);
@@ -164,7 +257,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Listen for selection changes (cursor movement)
   const selectionListener = vscode.window.onDidChangeTextEditorSelection(() => {
     if (!currentConfig.enabled || !catActive) { return; }
-    despawnCat();
+    despawnCat('selection-change');
     resetIdleTimer();
   });
   context.subscriptions.push(selectionListener);
@@ -175,7 +268,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (currentConfig.enabled) { resetIdleTimer(); }
       return;
     }
-    despawnCat();
+    despawnCat('active-editor-change');
     if (currentConfig.enabled) { resetIdleTimer(); }
   });
   context.subscriptions.push(editorChangeListener);
@@ -184,7 +277,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Guard against feedback loop: decoration updates can trigger visible-range changes
   const scrollListener = vscode.window.onDidChangeTextEditorVisibleRanges(() => {
     if (!currentConfig.enabled || !catActive || isRendering) { return; }
-    despawnCat();
+    despawnCat('visible-range-change');
     resetIdleTimer();
   });
   context.subscriptions.push(scrollListener);
@@ -220,11 +313,16 @@ function spawnCat(): void {
 
   catActive = true;
   lastFootprintCol = -999;
+  lastTickAt = 0;
   statusState = formatActionLabel(physics.getState().action);
   updateStatusBar();
 
   const state = physics.getState();
-  log.appendLine(`Cat spawned at line ${state.line}, col ${state.col} (cursor was at line ${cursorLine})`);
+  log.info(`Cat spawned at line ${state.line}, col ${state.col} (cursor was at line ${cursorLine})`);
+  debugLog(
+    `spawn visible=${start}-${end} cursor=${cursorLine} state={${formatState(state)}} ` +
+    `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, state)}`,
+  );
 
   // Start tick loop (speed-adjusted tick interval)
   const tickMs = Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
@@ -234,11 +332,39 @@ function spawnCat(): void {
 
 function tickCat(): void {
   const editor = vscode.window.activeTextEditor;
-  if (!editor || !catActive) { despawnCat(); return; }
+  if (!editor || !catActive) { despawnCat('tick:no-active-editor'); return; }
 
   try {
+    const prev = physics.getState();
+    const tickMs = Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
+    const now = Date.now();
+    if (debugEnabled() && lastTickAt > 0) {
+      const elapsed = now - lastTickAt;
+      if (elapsed > tickMs * 1.75) {
+        debugLog(`tick delayed ${elapsed}ms while {${formatState(prev)}}`);
+      } else if (elapsed < tickMs * 0.5) {
+        debugLog(`tick bunched ${elapsed}ms after previous tick while {${formatState(prev)}}`);
+      }
+    }
+    lastTickAt = now;
+
     const state = physics.tick();
     const fish = physics.getFish();
+    maybeLogTickAnomaly(prev, state);
+
+    if ((state.action === 'jump' || state.action === 'fall') && prev.action !== state.action) {
+      debugLog(
+        `vertical start prev={${formatState(prev)}} next={${formatState(state)}} ` +
+        `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, state)}`,
+      );
+    }
+    if ((prev.action === 'jump' || prev.action === 'fall') && state.action !== prev.action) {
+      debugLog(
+        `vertical end prev={${formatState(prev)}} next={${formatState(state)}} ` +
+        `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, state)}`,
+      );
+    }
+
     const nextStatusState = formatActionLabel(state.action);
     if (nextStatusState !== statusState) {
       statusState = nextStatusState;
@@ -265,14 +391,24 @@ function tickCat(): void {
     }
   } catch (e: any) {
     isRendering = false;
-    log.appendLine(`ERROR in tick: ${e.message}\n${e.stack}`);
-    despawnCat();
+    log.error(`ERROR in tick: ${e.message}\n${e.stack}`);
+    debugLog(`tick error state={${formatState(physics.getState())}} ${formatSnapshot(getPhysicsSnapshot())}`);
+    despawnCat('tick:error');
     resetIdleTimer();
   }
 }
 
-function despawnCat(): void {
+function despawnCat(reason = 'unknown'): void {
+  if (catActive) {
+    const state = physics.getState();
+    debugLog(
+      `despawn reason=${reason} state={${formatState(state)}} ` +
+      `${formatSnapshot(getPhysicsSnapshot())}` +
+      (vscode.window.activeTextEditor ? ` ${describeRenderAnchor(vscode.window.activeTextEditor, state)}` : ''),
+    );
+  }
   catActive = false;
+  lastTickAt = 0;
   statusState = currentConfig.enabled ? 'sleep' : 'disabled';
   updateStatusBar();
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
@@ -280,13 +416,13 @@ function despawnCat(): void {
     renderer?.clearAll();
     physics?.reset();
   } catch (e: any) {
-    log?.appendLine(`ERROR in despawn: ${e.message}`);
+    log?.error(`ERROR in despawn: ${e.message}`);
   }
 }
 
 export function deactivate() {
-  despawnCat();
+  despawnCat('deactivate');
   if (idleTimeout) { clearTimeout(idleTimeout); }
-  log?.appendLine('Code Cat Life Abi deactivated');
+  log?.info('Code Cat Life Abi deactivated');
   log?.dispose();
 }
