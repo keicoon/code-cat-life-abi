@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.0
+
+- added a Status Bar cat indicator with sleep/out state display
+- added a dedicated log channel and movement diagnostics for jump/fall debugging
+- added a short landing pause after jump/fall so consecutive vertical moves feel more natural
+
 ## 0.0.6
 
 - fixed cat permanently disappearing after repeated spawn/despawn cycles
