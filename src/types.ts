@@ -51,7 +51,6 @@ export interface PhysicsConfig {
   fishSpawnInterval: number;
   fishPostEatDelay: number;
   fishChaseTimeout: number;
-  idleDuration: number;
   surpriseDuration: number;
   eatDuration: number;
 }
@@ -74,7 +73,6 @@ export const DEFAULT_PHYSICS: PhysicsConfig = {
   fishSpawnInterval: 80,
   fishPostEatDelay: 60,
   fishChaseTimeout: 800,
-  idleDuration: 50,
   surpriseDuration: 15,
   eatDuration: 20,
 };

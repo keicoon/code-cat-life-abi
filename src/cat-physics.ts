@@ -445,6 +445,8 @@ export class CatPhysics {
       if (this.fishChaseTicks >= this.config.fishChaseTimeout) {
         this.fish.active = false;
         this.fishSpawnTimer = 0;
+        this.route = null;
+        this.targetLine = -1;
         this.setState('idle');
       }
     }

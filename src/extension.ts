@@ -76,7 +76,6 @@ export async function activate(context: vscode.ExtensionContext) {
   // React to config changes — despawn first to avoid stale physics state
   const configListener = vscode.workspace.onDidChangeConfiguration(e => {
     if (e.affectsConfiguration('codeCat')) {
-      const wasEnabled = currentConfig.enabled;
       despawnCat();
       applyConfig();
       if (currentConfig.enabled) { resetIdleTimer(); }
@@ -128,12 +127,6 @@ function getVisibleRange(editor: vscode.TextEditor): { start: number; end: numbe
   const ranges = editor.visibleRanges;
   if (ranges.length === 0) { return { start: 0, end: editor.document.lineCount - 1 }; }
   return { start: ranges[0].start.line, end: ranges[ranges.length - 1].end.line };
-}
-
-function updateVisibleTerrain(editor: vscode.TextEditor): void {
-  const text = editor.document.getText();
-  const { start, end } = getVisibleRange(editor);
-  physics.updateTerrain(text, start, end);
 }
 
 function spawnCat(): void {
