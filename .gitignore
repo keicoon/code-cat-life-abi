@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+*.vsix
+.vscode-test/
+sprites/_deprecated/
+prototype/reference-sprites/*.png
+.DS_Store
+out/
