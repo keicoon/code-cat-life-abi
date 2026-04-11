@@ -302,23 +302,26 @@ export class CatPhysics {
 
     return path.map((step, idx) => {
       // For multi-step routes, gradually shift preferred col toward goal
-      // so X movement is distributed across jumps instead of all at the end
       let preferCol = prevCol;
       if (path.length > 1 && this.routeGoalCol >= 0) {
         const progress = (idx + 1) / path.length;
         preferCol = Math.round(prevCol + (this.routeGoalCol - prevCol) * progress * 0.4);
       }
       const bestCol = this.findNearestValidCol(prevLine, step.line, preferCol);
-      const col = bestCol >= 0 ? bestCol : step.viaCol;
-      // Estimate actual landing considering per-line horizontal cap
+      let col = bestCol >= 0 ? bestCol : step.viaCol;
+
+      // Ensure landing displacement stays within per-line cap
       const rawLanding = this.clampToTextEdges(step.line, col);
       const vertDist = Math.abs(step.line - prevLine);
-      const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
-      let estLanding = rawLanding;
+      const maxH = Math.min(this.config.maxJumpCols, Math.max(2, vertDist * 2));
       if (Math.abs(rawLanding - col) > maxH) {
-        const cappedCol = col + Math.sign(rawLanding - col) * maxH;
-        estLanding = this.clampToTextEdges(step.line, cappedCol);
+        // Transit col too far from destination text — move transit closer
+        // Cat will run to this adjusted col on the source line before jumping/falling
+        const adjusted = rawLanding + (col > rawLanding ? maxH : -maxH);
+        col = this.clampToTextEdges(prevLine, adjusted);
       }
+
+      const estLanding = this.clampToTextEdges(step.line, col);
       prevCol = estLanding;
       prevLine = step.line;
       return { line: step.line, col, action: step.action };
@@ -524,12 +527,16 @@ export class CatPhysics {
           this.jumpStartLine = this.state.line;
           this.setState('jump');
           const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
-          const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
+          const maxH = Math.min(this.config.maxJumpCols, Math.max(2, vertDist * 2));
           let jumpTarget = this.clampToTextEdges(this.targetLine, this.state.col);
           // Per-line cap — re-clamp to text after capping
           if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
             const cappedCol = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
             jumpTarget = this.clampToTextEdges(this.targetLine, cappedCol);
+            // If still exceeds (dest text far away), accept — route planner should prevent this
+            if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
+              jumpTarget = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
+            }
           }
           this.targetCol = jumpTarget;
           if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
@@ -551,12 +558,16 @@ export class CatPhysics {
           this.jumpStartLine = this.state.line;
           this.setState('fall');
           const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
-          const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
+          const maxH = Math.min(this.config.maxJumpCols, Math.max(2, vertDist * 2));
           let fallTarget = this.clampToTextEdges(this.targetLine, this.state.col);
           // Per-line cap — re-clamp to text after capping
           if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
             const cappedCol = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
             fallTarget = this.clampToTextEdges(this.targetLine, cappedCol);
+            // If still exceeds (dest text far away), accept — route planner should prevent this
+            if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
+              fallTarget = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
+            }
           }
           this.targetCol = fallTarget;
           if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
