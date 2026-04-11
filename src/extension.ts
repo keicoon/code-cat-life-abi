@@ -107,10 +107,11 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(editorChangeListener);
 
-  // Listen for scroll — update visible terrain while cat is active
-  const scrollListener = vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
-    if (!catActive || !currentConfig.enabled) { return; }
-    updateVisibleTerrain(e.textEditor);
+  // Listen for scroll — despawn cat + reset idle timer
+  const scrollListener = vscode.window.onDidChangeTextEditorVisibleRanges(() => {
+    if (!currentConfig.enabled) { return; }
+    despawnCat();
+    resetIdleTimer();
   });
   context.subscriptions.push(scrollListener);
 
