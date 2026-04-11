@@ -107,6 +107,13 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(editorChangeListener);
 
+  // Listen for scroll — update visible terrain while cat is active
+  const scrollListener = vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
+    if (!catActive || !currentConfig.enabled) { return; }
+    updateVisibleTerrain(e.textEditor);
+  });
+  context.subscriptions.push(scrollListener);
+
   // Start idle timer
   if (currentConfig.enabled) { resetIdleTimer(); }
 }
@@ -116,6 +123,18 @@ function resetIdleTimer(): void {
   idleTimeout = setTimeout(() => spawnCat(), currentConfig.idleTimeout * 1000);
 }
 
+function getVisibleRange(editor: vscode.TextEditor): { start: number; end: number } {
+  const ranges = editor.visibleRanges;
+  if (ranges.length === 0) { return { start: 0, end: editor.document.lineCount - 1 }; }
+  return { start: ranges[0].start.line, end: ranges[ranges.length - 1].end.line };
+}
+
+function updateVisibleTerrain(editor: vscode.TextEditor): void {
+  const text = editor.document.getText();
+  const { start, end } = getVisibleRange(editor);
+  physics.updateTerrain(text, start, end);
+}
+
 function spawnCat(): void {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !currentConfig.enabled) { return; }
@@ -123,10 +142,11 @@ function spawnCat(): void {
   const text = editor.document.getText();
   if (text.trim().length === 0) { return; }
 
-  physics.updateTerrain(text);
+  const { start, end } = getVisibleRange(editor);
+  physics.updateTerrain(text, start, end);
 
-  // Spawn near cursor position
-  const cursorLine = editor.selection.active.line;
+  // Spawn near cursor position (within visible range)
+  const cursorLine = Math.max(start, Math.min(end, editor.selection.active.line));
   physics.spawn(cursorLine);
 
   catActive = true;

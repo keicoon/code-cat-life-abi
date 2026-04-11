@@ -35,6 +35,8 @@ export class CatPhysics {
   private lines: string[] = [];
   private terrain: boolean[][] = [];
   private maxCol = 0;
+  private visibleStart = 0;
+  private visibleEnd = 0;
 
   private state: CatState = {
     line: 0, col: 0,
@@ -62,16 +64,25 @@ export class CatPhysics {
 
   // ---- Terrain ----
 
-  updateTerrain(text: string): void {
+  updateTerrain(text: string, visibleStart?: number, visibleEnd?: number): void {
     this.lines = text.split('\n');
     this.maxCol = 0;
     this.terrain = [];
+
+    // Constrain to visible range if provided
+    const vStart = visibleStart ?? 0;
+    const vEnd = visibleEnd ?? this.lines.length - 1;
+    this.visibleStart = vStart;
+    this.visibleEnd = vEnd;
+
     for (let l = 0; l < this.lines.length; l++) {
       const line = this.lines[l];
       if (line.length > this.maxCol) { this.maxCol = line.length; }
       this.terrain[l] = [];
       for (let c = 0; c <= this.maxCol; c++) {
-        this.terrain[l][c] = c < line.length && line[c] !== ' ';
+        // Only treat lines within visible range as solid terrain
+        const inView = l >= vStart && l <= vEnd;
+        this.terrain[l][c] = inView && c < line.length && line[c] !== ' ';
       }
     }
     this.validatePosition();
@@ -103,6 +114,7 @@ export class CatPhysics {
   }
 
   private isEmptyLine(line: number): boolean {
+    if (line < this.visibleStart || line > this.visibleEnd) { return true; }
     return line >= 0 && line < this.lines.length && this.lines[line].trim().length === 0;
   }
 
@@ -280,7 +292,8 @@ export class CatPhysics {
     const reachable: Record<number, boolean> = {};
     const positions: Array<{ line: number; col: number; dist: number }> = [];
 
-    for (let l = 0; l < this.lines.length; l++) {
+    // Only consider lines within visible range
+    for (let l = this.visibleStart; l <= this.visibleEnd; l++) {
       if (this.isEmptyLine(l)) { continue; }
       if (reachable[l] === undefined) {
         reachable[l] = (l === catLine) || (this.findPath(catLine, l) !== null);
