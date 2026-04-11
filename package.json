@@ -1,6 +1,6 @@
 {
-  "name": "code-cat",
-  "displayName": "Code Cat",
+  "name": "code-cat-life-abi",
+  "displayName": "Code Cat Life Abi",
   "description": "A cute white cat that lives in your editor, treating code as a platformer terrain",
   "version": "0.0.4",
   "publisher": "keicoon15",
@@ -30,53 +30,53 @@
   "contributes": {
     "commands": [
       {
-        "command": "codeCat.toggle",
-        "title": "Code Cat: Toggle"
+        "command": "codeCatLifeAbi.toggle",
+        "title": "Code Cat Life Abi: Toggle"
       }
     ],
     "configuration": {
-      "title": "Code Cat",
+      "title": "Code Cat Life Abi",
       "properties": {
-        "codeCat.enabled": {
+        "codeCatLifeAbi.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable or disable Code Cat"
+          "description": "Enable or disable Code Cat Life Abi"
         },
-        "codeCat.catColor": {
+        "codeCatLifeAbi.catColor": {
           "type": "string",
           "default": "#ffffff",
           "pattern": "^#[0-9a-fA-F]{6}$",
           "description": "Cat color in hex (e.g. #ffffff for white, #ff9900 for orange). Paw prints will match."
         },
-        "codeCat.idleTimeout": {
+        "codeCatLifeAbi.idleTimeout": {
           "type": "number",
           "default": 2,
           "minimum": 1,
           "maximum": 60,
-          "description": "Seconds of inactivity before Code Cat appears in the editor"
+          "description": "Seconds of inactivity before Code Cat Life Abi appears in the editor"
         },
-        "codeCat.sleepTime": {
+        "codeCatLifeAbi.sleepTime": {
           "type": "number",
           "default": 8,
           "minimum": 3,
           "maximum": 30,
           "description": "Seconds the cat sleeps after finishing one fish session before the next session begins"
         },
-        "codeCat.fishSessionCount": {
+        "codeCatLifeAbi.fishSessionCount": {
           "type": "number",
           "default": 5,
           "minimum": 1,
           "maximum": 20,
           "description": "Number of consecutive fish the cat chases before it goes to sleep"
         },
-        "codeCat.animationSpeed": {
+        "codeCatLifeAbi.animationSpeed": {
           "type": "number",
           "default": 1,
           "minimum": 0.5,
           "maximum": 2,
           "description": "Animation speed multiplier applied to running, jumping, falling, and chase timing (0.5 = slow, 1.0 = normal, 2.0 = fast)"
         },
-        "codeCat.showFootprints": {
+        "codeCatLifeAbi.showFootprints": {
           "type": "boolean",
           "default": true,
           "description": "Show paw print trail behind the cat while running"
@@ -102,11 +102,11 @@
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/keicoon/code-cat/issues"
+    "url": "https://github.com/keicoon/code-cat-life-abi/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/keicoon/code-cat.git"
+    "url": "https://github.com/keicoon/code-cat-life-abi.git"
   },
-  "homepage": "https://github.com/keicoon/code-cat#readme"
+  "homepage": "https://github.com/keicoon/code-cat-life-abi#readme"
 }

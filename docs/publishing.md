@@ -1,4 +1,4 @@
-# Code Cat — VS Code 마켓플레이스 배포 가이드
+# Code Cat Life Abi — VS Code 마켓플레이스 배포 가이드
 
 ## 1. 사전 준비
 
@@ -26,10 +26,10 @@
 npm run package:vsix
 
 # 설치
-code --install-extension code-cat-<version>.vsix
+code --install-extension code-cat-life-abi-<version>.vsix
 ```
 
-- 현재 저장소 루트에는 최신 패키징 결과인 `code-cat-<version>.vsix`가 생성됨
+- 현재 저장소 루트에는 최신 패키징 결과인 `code-cat-life-abi-<version>.vsix`가 생성됨
 - 실제 배포 파일에는 `.vscodeignore` 기준으로 `src/`, `docs/`, `demo/`, `prototype/` 등이 제외됨
 - 패키징 전에는 항상 `npm test`까지 한 번 통과시키는 편이 안전함
 
@@ -75,7 +75,7 @@ npx @vscode/vsce publish major
 
 ```bash
 # 특정 버전 배포 취소
-npx @vscode/vsce unpublish keicoon15.code-cat
+npx @vscode/vsce unpublish keicoon15.code-cat-life-abi
 ```
 
 또는 [marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage) 에서 직접 관리 가능.

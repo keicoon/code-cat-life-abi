@@ -1,4 +1,4 @@
-# Code Cat — VS Code Extension Prototyping Plan
+# Code Cat Life Abi — VS Code Extension Prototyping Plan
 
 ## Overview
 VS Code extension: 유저가 일정 시간 입력하지 않으면 하얀 고양이가 에디터 위에 나타나서 텍스트를 플랫포머 지형처럼 돌아다니고, 생선을 쫓아가 먹는다. 타이핑 재개 시 고양이가 사라진다.

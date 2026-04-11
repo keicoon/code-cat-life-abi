@@ -16,7 +16,7 @@ let currentConfig: ExtensionConfig;
 let log: vscode.OutputChannel;
 
 function readConfig(): ExtensionConfig {
-  const cfg = vscode.workspace.getConfiguration('codeCat');
+  const cfg = vscode.workspace.getConfiguration('codeCatLifeAbi');
   const sleepTime = cfg.get<number>('sleepTime');
   return {
     enabled: cfg.get<boolean>('enabled', true),
@@ -53,8 +53,8 @@ function applyConfig(): void {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-  log = vscode.window.createOutputChannel('Code Cat');
-  log.appendLine('Code Cat activating...');
+  log = vscode.window.createOutputChannel('Code Cat Life Abi');
+  log.appendLine('Code Cat Life Abi activating...');
 
   const spritesDir = path.join(context.extensionPath, 'sprites');
   sprites = new SpriteManager(spritesDir);
@@ -63,7 +63,7 @@ export async function activate(context: vscode.ExtensionContext) {
     log.appendLine(`Sprites loaded from ${spritesDir}`);
   } catch (e: any) {
     log.appendLine(`ERROR loading sprites: ${e.message}`);
-    vscode.window.showErrorMessage(`Code Cat: Failed to load sprites — ${e.message}`);
+    vscode.window.showErrorMessage(`Code Cat Life Abi: Failed to load sprites — ${e.message}`);
     return;
   }
 
@@ -74,8 +74,8 @@ export async function activate(context: vscode.ExtensionContext) {
   log.appendLine(`Config: ${JSON.stringify(currentConfig)}`);
 
   // Toggle command
-  const toggleCmd = vscode.commands.registerCommand('codeCat.toggle', () => {
-    const cfg = vscode.workspace.getConfiguration('codeCat');
+  const toggleCmd = vscode.commands.registerCommand('codeCatLifeAbi.toggle', () => {
+    const cfg = vscode.workspace.getConfiguration('codeCatLifeAbi');
     const next = !cfg.get<boolean>('enabled', true);
     cfg.update('enabled', next, vscode.ConfigurationTarget.Global);
   });
@@ -83,7 +83,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // React to config changes — despawn first to avoid stale physics state
   const configListener = vscode.workspace.onDidChangeConfiguration(e => {
-    if (e.affectsConfiguration('codeCat')) {
+    if (e.affectsConfiguration('codeCatLifeAbi')) {
       despawnCat();
       applyConfig();
       if (currentConfig.enabled) { resetIdleTimer(); }
@@ -202,6 +202,6 @@ function despawnCat(): void {
 export function deactivate() {
   despawnCat();
   if (idleTimeout) { clearTimeout(idleTimeout); }
-  log?.appendLine('Code Cat deactivated');
+  log?.appendLine('Code Cat Life Abi deactivated');
   log?.dispose();
 }

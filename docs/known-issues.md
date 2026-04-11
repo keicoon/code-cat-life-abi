@@ -1,4 +1,4 @@
-# Code Cat — 알려진 이슈 (Known Issues)
+# Code Cat Life Abi — 알려진 이슈 (Known Issues)
 
 ## ✅ FIXED: Vertical Move Jitter
 

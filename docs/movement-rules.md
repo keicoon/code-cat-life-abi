@@ -1,4 +1,4 @@
-# Code Cat — 이동 규칙 (Movement Rules)
+# Code Cat Life Abi — 이동 규칙 (Movement Rules)
 
 모든 이동 로직은 아래 규칙을 반드시 준수해야 한다.
 규칙 간 충돌 시 **우선순위가 높은 규칙이 승리**한다.

@@ -357,7 +357,7 @@ function testSessionEndSleepsUntilRespawn(): void {
 }
 
 console.log('═══════════════════════════════════════════');
-console.log('  Code Cat — Movement Regression Suite');
+console.log('  Code Cat Life Abi — Movement Regression Suite');
 console.log('═══════════════════════════════════════════');
 
 testMovementStaysOnTextAndContinuous();
