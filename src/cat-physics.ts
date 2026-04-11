@@ -520,9 +520,20 @@ export class CatPhysics {
 
       case 'jump': {
         const totalDy = this.jumpStartLine - this.targetLine;
+        const hDist = Math.abs(this.targetCol - this.jumpStartCol);
+
+        // Adaptive speed: slow vertical if horizontal distance is large
+        // This caps horizontal speed to ~2× runSpeed
+        const maxHSpeed = runSpeed * 2;
+        const MAX_TICKS = 30; // cap at ~2.4 seconds
+        const minVTicks = totalDy / jumpSpeed;
+        const minHTicks = hDist > 0 ? hDist / maxHSpeed : 0;
+        const jumpTicks = Math.min(MAX_TICKS, Math.max(minVTicks, minHTicks));
+        const effectiveSpeed = totalDy / Math.max(1, jumpTicks);
+
         const currentDy = this.state.line - this.targetLine;
-        if (currentDy > jumpSpeed) {
-          this.state.line -= jumpSpeed;
+        if (currentDy > effectiveSpeed) {
+          this.state.line -= effectiveSpeed;
           // Linear interpolation: col moves proportionally to vertical progress
           if (totalDy > 0) {
             const progress = 1 - ((this.state.line - this.targetLine) / totalDy);
@@ -540,9 +551,19 @@ export class CatPhysics {
 
       case 'fall': {
         const totalDy = this.targetLine - this.jumpStartLine;
+        const hDist = Math.abs(this.targetCol - this.jumpStartCol);
+
+        // Adaptive speed: slow vertical if horizontal distance is large
+        const maxHSpeed = runSpeed * 2;
+        const MAX_TICKS = 30;
+        const minVTicks = totalDy / fallSpeed;
+        const minHTicks = hDist > 0 ? hDist / maxHSpeed : 0;
+        const fallTicks = Math.min(MAX_TICKS, Math.max(minVTicks, minHTicks));
+        const effectiveSpeed = totalDy / Math.max(1, fallTicks);
+
         const currentDy = this.targetLine - this.state.line;
-        if (currentDy > fallSpeed) {
-          this.state.line += fallSpeed;
+        if (currentDy > effectiveSpeed) {
+          this.state.line += effectiveSpeed;
           // Linear interpolation: col moves proportionally to vertical progress
           if (totalDy > 0) {
             const progress = 1 - ((this.targetLine - this.state.line) / totalDy);
