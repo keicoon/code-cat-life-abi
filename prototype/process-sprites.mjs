@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from 'fs';
 import { join } from 'path';
 
-const SRC = '/Users/keicoon15/Repo/TypeAnimation/reference-sprites';
-const OUT = '/Users/keicoon15/Repo/TypeAnimation/sprites';
+const SRC = '/Users/keicoon15/Repo/code-cat/reference-sprites';
+const OUT = '/Users/keicoon15/Repo/code-cat/sprites';
 
 // Clean & recreate
 rmSync(OUT, { recursive: true, force: true });
