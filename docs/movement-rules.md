@@ -11,7 +11,7 @@
 
 - `state.col`은 해당 `state.line`의 `textEdges(line).left` ~ `textEdges(line).right` 범위 내
 - **빈 라인**(공백만 있는 라인)에는 착지 불가
-- jump/fall **착지 시점**: `targetCol`은 반드시 대상 라인의 `clampToTextEdges` 결과
+- jump/fall **착지 시점**: `targetCol`은 대상 라인 위의 유효한 stride 착지점이어야 한다
 - run 시: `targetCol`은 대상 라인의 텍스트 범위 내
 - 다른 규칙(per-line cap 등)과 충돌 시 **이 규칙이 항상 우선**
 
@@ -22,7 +22,7 @@
 | idle/sleep | 위치 변하지 않음 |
 | run | `targetCol = clampToTextEdges(line, goalCol)` |
 | run_then_jump/fall | 트랜짓 col = `clampToTextEdges(sourceLine, col)` |
-| jump/fall 착지 | `targetCol = clampToTextEdges(destLine, col)` |
+| jump/fall 착지 | `targetCol ∈ {startCol, startCol ± 2}` 중 대상 라인에 유효한 착지점 |
 | jump/fall 중간 | 선형 보간 (start→target, 둘 다 텍스트 위) |
 
 ---
@@ -41,19 +41,22 @@
 
 ## 규칙 3: 점프/낙하 수평 제한 (Horizontal Cap) — 🟡 최선 노력
 
-> Y축 이동 중 X축 이동량은 **고정값 2컬럼**으로 제한한다. Y 이동이 여러 줄이어도 X 허용량은 동일하다.
+> Y축 이동 중 X축 이동은 **jump, fall 모두 가능**하다. 다만 X 이동량은 매 스텝마다 **0 또는 고정값 2컬럼**만 허용한다.
 
 ```
 maxH = 2  (고정 — vertDist에 비례하지 않음)
 ```
 
-- 1줄 점프: 최대 X = 2 컬럼
-- 3줄 점프: 최대 X = 2 컬럼 (동일)
-- 여러 점프/낙하가 이어지면 매 스텝마다 2컬럼씩 X 이동 → 점진적 접근
+- jump/fall 모두: X 이동량은 `0` 또는 `2` 컬럼
+- 1줄 점프/낙하: 최대 X = 2 컬럼
+- 3줄 점프/낙하: 최대 X = 2 컬럼 (동일)
+- goal과의 X 차이가 2보다 작으면 Y 이동 중에는 X를 움직이지 않고, 남은 차이는 run에서 정리
+- 여러 Y 스텝이 이어지면 매 스텝마다 2컬럼씩 X 이동 → 점진적 접근
 
 ### 골 방향 X 분산
 - 경로 플래너가 `preferCol`을 골 방향으로 점진 이동
-- 실행 시점에서 maxH 범위 내에서 골 방향으로 착지 시도
+- 실행 시점에서 goal이 충분히 멀면(`|goalDelta| >= 2`) 골 방향으로 정확히 2컬럼 이동
+- goal이 가까우면(`|goalDelta| < 2`) partial stride는 금지하고 0컬럼 이동
 - 여러 Y 스텝에 걸쳐 X 이동이 자연스럽게 분산
 
 ---

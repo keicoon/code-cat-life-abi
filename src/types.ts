@@ -26,11 +26,6 @@ export interface FishState {
   active: boolean;
 }
 
-export interface TerrainInfo {
-  lines: string[];
-  lineCount: number;
-}
-
 export interface TextEdge {
   left: number;
   right: number;
@@ -51,7 +46,6 @@ export interface PhysicsConfig {
   fishSpawnInterval: number;
   fishPostEatDelay: number;
   fishChaseTimeout: number;
-  maxJumpCols: number;
   surpriseDuration: number;
   eatDuration: number;
 }
@@ -74,7 +68,6 @@ export const DEFAULT_PHYSICS: PhysicsConfig = {
   fishSpawnInterval: 80,
   fishPostEatDelay: 60,
   fishChaseTimeout: 800,
-  maxJumpCols: 20,
   surpriseDuration: 15,
   eatDuration: 20,
 };

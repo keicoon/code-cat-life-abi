@@ -1,7 +1,6 @@
 import {
   CatState,
   CatAction,
-  Direction,
   FishState,
   TextEdge,
   RouteStep,
@@ -55,7 +54,6 @@ export class CatPhysics {
   private targetCol = 0;
   private targetLine = -1;
 
-  private animTick = 0;
   private pathFailCount = 0;
   private jumpStartCol = 0;
   private jumpStartLine = 0;
@@ -152,61 +150,84 @@ export class CatPhysics {
     return true;
   }
 
-  /** Like findVerticalCol but picks a RANDOM valid column for path variety */
-  private findRandomVerticalCol(fromLine: number, toLine: number): number {
-    const edges = this.textEdges(fromLine);
-    if (!edges) { return -1; }
+  private static readonly MAX_H_CAP = 2;
+
+  private getStrideLandingCols(targetLine: number, transitCol: number): number[] {
+    const targetEdges = this.textEdges(targetLine);
+    if (!targetEdges) { return []; }
+
+    const landings: number[] = [];
+    for (const landing of [
+      transitCol,
+      transitCol - CatPhysics.MAX_H_CAP,
+      transitCol + CatPhysics.MAX_H_CAP,
+    ]) {
+      if (landing >= targetEdges.left && landing <= targetEdges.right && !landings.includes(landing)) {
+        landings.push(landing);
+      }
+    }
+    return landings;
+  }
+
+  private getPreferredStrideMoves(transitCol: number): number[] {
+    const goalCol = this.routeGoalCol >= 0 ? this.routeGoalCol : transitCol;
+    const goalDelta = goalCol - transitCol;
+    const towardGoalMove = goalDelta === 0 ? 0 : Math.sign(goalDelta) * CatPhysics.MAX_H_CAP;
+
+    if (Math.abs(goalDelta) >= CatPhysics.MAX_H_CAP) {
+      return [towardGoalMove, 0, -towardGoalMove];
+    }
+    if (goalDelta === 0) {
+      return [0, CatPhysics.MAX_H_CAP, -CatPhysics.MAX_H_CAP];
+    }
+    return [0, towardGoalMove, -towardGoalMove];
+  }
+
+  private estimateLandingCol(targetLine: number, transitCol: number): number {
+    const landingCols = this.getStrideLandingCols(targetLine, transitCol);
+    if (landingCols.length === 0) { return this.clampToTextEdges(targetLine, transitCol); }
+
+    for (const move of this.getPreferredStrideMoves(transitCol)) {
+      const landing = transitCol + move;
+      if (landingCols.includes(landing)) { return landing; }
+    }
+    return landingCols[0];
+  }
+
+  private findRandomStrideTransitCol(fromLine: number, toLine: number): number {
+    const fromEdges = this.textEdges(fromLine);
+    if (!fromEdges) { return -1; }
+
     const valid: number[] = [];
-    for (let c = edges.left; c <= edges.right; c++) {
-      if (this.isVerticalPathClear(fromLine, toLine, c)) { valid.push(c); }
+    for (let c = fromEdges.left; c <= fromEdges.right; c++) {
+      if (this.isVerticalPathClear(fromLine, toLine, c) && this.getStrideLandingCols(toLine, c).length > 0) {
+        valid.push(c);
+      }
     }
     if (valid.length === 0) { return -1; }
     return valid[Math.floor(Math.random() * valid.length)];
   }
 
-  /** Find the valid transit column closest to preferCol, prioritizing overlap with destination */
+  /** Find the transit column closest to preferCol whose landing is 0 or exactly maxH. */
   private findNearestValidCol(fromLine: number, toLine: number, preferCol: number): number {
     const fromEdges = this.textEdges(fromLine);
     if (!fromEdges) { return -1; }
-    const toEdges = this.textEdges(toLine);
 
-    // Prefer columns valid on BOTH source and destination lines
-    const overlapL = toEdges ? Math.max(fromEdges.left, toEdges.left) : fromEdges.left;
-    const overlapR = toEdges ? Math.min(fromEdges.right, toEdges.right) : fromEdges.right;
-
-    if (overlapL <= overlapR) {
-      const pref = Math.max(overlapL, Math.min(overlapR, preferCol));
-      for (let d = 0; d <= overlapR - overlapL; d++) {
-        for (const c of [pref + d, pref - d]) {
-          if (c >= overlapL && c <= overlapR && this.isVerticalPathClear(fromLine, toLine, c)) {
-            return c;
-          }
-        }
+    let bestCol = -1;
+    let bestScore = Infinity;
+    for (let c = fromEdges.left; c <= fromEdges.right; c++) {
+      if (!this.isVerticalPathClear(fromLine, toLine, c)) { continue; }
+      if (this.getStrideLandingCols(toLine, c).length === 0) { continue; }
+      const landing = this.estimateLandingCol(toLine, c);
+      const goalPenalty = this.routeGoalCol >= 0 ? Math.abs(landing - this.routeGoalCol) : 0;
+      const score = Math.abs(c - preferCol) + goalPenalty * 2;
+      if (score < bestScore) {
+        bestScore = score;
+        bestCol = c;
       }
     }
-
-    // Fallback: no overlap — prefer source col closest to target text
-    // to minimize horizontal displacement during diagonal jump/fall
-    let fallbackPref = preferCol;
-    if (toEdges) {
-      if (fromEdges.right < toEdges.left) {
-        fallbackPref = fromEdges.right;   // source left of target → right edge
-      } else if (fromEdges.left > toEdges.right) {
-        fallbackPref = fromEdges.left;    // source right of target → left edge
-      }
-    }
-    const pref = Math.max(fromEdges.left, Math.min(fromEdges.right, fallbackPref));
-    for (let d = 0; d <= fromEdges.right - fromEdges.left; d++) {
-      for (const c of [pref + d, pref - d]) {
-        if (c >= fromEdges.left && c <= fromEdges.right && this.isVerticalPathClear(fromLine, toLine, c)) {
-          return c;
-        }
-      }
-    }
-    return -1;
+    return bestCol;
   }
-
-  private static readonly MAX_H_CAP = 2;
 
   /** Minimum horizontal distance between text ranges on two lines (0 if overlapping) */
   private minTextGap(lineA: number, lineB: number): number {
@@ -220,8 +241,7 @@ export class CatPhysics {
 
   private getLineNeighbors(line: number): Neighbor[] {
     const neighbors: Neighbor[] = [];
-    const edges = this.textEdges(line);
-    if (!edges) { return neighbors; }
+    if (!this.textEdges(line)) { return neighbors; }
 
     // Jump up: max 3 lines — exponential cost strongly prefers 1-line hops
     for (let up = 1; up <= this.config.maxJumpLines; up++) {
@@ -229,7 +249,7 @@ export class CatPhysics {
       if (target < 0 || this.isEmptyLine(target)) { continue; }
       // Skip if horizontal gap exceeds maxH — prevents infeasible multi-line jumps
       if (this.minTextGap(line, target) > CatPhysics.MAX_H_CAP) { continue; }
-      const col = this.findRandomVerticalCol(line, target);
+      const col = this.findRandomStrideTransitCol(line, target);
       if (col >= 0) {
         // 1-line: cost 2, 2-line: cost 5, 3-line: cost 10
         const cost = up * up + 1;
@@ -245,24 +265,19 @@ export class CatPhysics {
       if (target >= this.lines.length) { break; }
       if (this.isEmptyLine(target)) { continue; }
       if (this.minTextGap(line, target) > CatPhysics.MAX_H_CAP) { continue; }
-      const col = this.findRandomVerticalCol(line, target);
+      const col = this.findRandomStrideTransitCol(line, target);
       if (col >= 0) {
         neighbors.push({ line: target, cost: down, viaCol: col, action: 'fall' });
       }
       break;
     }
 
-    // Walk to adjacent overlapping text — cheapest option (cost 1)
-    for (const d of [-1, 1]) {
-      const nb = line + d;
-      if (nb >= 0 && nb < this.lines.length && !this.isEmptyLine(nb)) {
-        const en = this.textEdges(nb);
-        if (en && edges.left <= en.right + 1 && edges.right >= en.left - 1) {
-          const overlapL = Math.max(edges.left, en.left);
-          const overlapR = Math.min(edges.right, en.right);
-          const walkCol = overlapL + Math.floor(Math.random() * Math.max(1, overlapR - overlapL + 1));
-          neighbors.push({ line: nb, cost: 1, viaCol: walkCol, action: d < 0 ? 'jump' : 'fall' });
-        }
+    // Adjacent upward moves with a legal stride are the cheapest climb.
+    const upLine = line - 1;
+    if (upLine >= 0 && !this.isEmptyLine(upLine)) {
+      const col = this.findRandomStrideTransitCol(line, upLine);
+      if (col >= 0) {
+        neighbors.push({ line: upLine, cost: 1, viaCol: col, action: 'jump' });
       }
     }
 
@@ -327,23 +342,69 @@ export class CatPhysics {
         preferCol = Math.round(prevCol + (this.routeGoalCol - prevCol) * progress * 0.4);
       }
       const bestCol = this.findNearestValidCol(prevLine, step.line, preferCol);
-      let col = bestCol >= 0 ? bestCol : step.viaCol;
-
-      // Ensure landing displacement stays within fixed horizontal cap
-      const rawLanding = this.clampToTextEdges(step.line, col);
-      const maxH = CatPhysics.MAX_H_CAP;
-      if (Math.abs(rawLanding - col) > maxH) {
-        // Transit col too far from destination text — move transit closer
-        // Cat will run to this adjusted col on the source line before jumping/falling
-        const adjusted = rawLanding + (col > rawLanding ? maxH : -maxH);
-        col = this.clampToTextEdges(prevLine, adjusted);
-      }
-
-      const estLanding = this.clampToTextEdges(step.line, col);
+      const col = bestCol >= 0 ? bestCol : step.viaCol;
+      const estLanding = this.estimateLandingCol(step.line, col);
       prevCol = estLanding;
       prevLine = step.line;
       return { line: step.line, col, action: step.action };
     });
+  }
+
+  private startVerticalMove(action: 'jump' | 'fall'): void {
+    this.jumpStartCol = this.state.col;
+    this.jumpStartLine = this.state.line;
+    this.setState(action);
+    this.targetCol = this.estimateLandingCol(this.targetLine, this.jumpStartCol);
+    if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
+      this.state.direction = this.targetCol > this.jumpStartCol ? 'right' : 'left';
+    }
+  }
+
+  private tickRunThenVertical(action: 'jump' | 'fall', runSpeed: number): void {
+    const dx = this.targetCol - this.state.col;
+    if (Math.abs(dx) < runSpeed) {
+      this.state.col = this.targetCol;
+      this.startVerticalMove(action);
+    } else {
+      this.state.direction = dx > 0 ? 'right' : 'left';
+      this.state.col += (dx > 0 ? 1 : -1) * runSpeed;
+    }
+    this.state.frame = (this.state.frame + 1) % 5;
+  }
+
+  private tickVerticalMove(action: 'jump' | 'fall', verticalSpeed: number, runSpeed: number): void {
+    const totalDy = Math.abs(this.targetLine - this.jumpStartLine);
+    const hDist = Math.abs(this.targetCol - this.jumpStartCol);
+
+    // Adaptive speed: slow vertical if horizontal distance is large
+    // This caps horizontal speed to ~2× runSpeed
+    const maxHSpeed = runSpeed * 2;
+    const maxTicks = 30;
+    const minVTicks = totalDy / verticalSpeed;
+    const minHTicks = hDist > 0 ? hDist / maxHSpeed : 0;
+    const travelTicks = Math.min(maxTicks, Math.max(minVTicks, minHTicks));
+    const effectiveSpeed = totalDy / Math.max(1, travelTicks);
+    const remainingDy = action === 'jump'
+      ? this.state.line - this.targetLine
+      : this.targetLine - this.state.line;
+
+    if (remainingDy > effectiveSpeed) {
+      this.state.line += action === 'jump' ? -effectiveSpeed : effectiveSpeed;
+      if (totalDy > 0) {
+        const verticalRemaining = action === 'jump'
+          ? this.state.line - this.targetLine
+          : this.targetLine - this.state.line;
+        const progress = 1 - (verticalRemaining / totalDy);
+        this.state.col = this.jumpStartCol + (this.targetCol - this.jumpStartCol) * progress;
+      }
+      return;
+    }
+
+    this.state.line = this.targetLine;
+    this.state.col = this.targetCol;
+    this.targetLine = -1;
+    this.checkFishEat();
+    if (this.state.action === action) { this.executeNextRouteStep(); }
   }
 
   private executeNextRouteStep(): void {
@@ -465,7 +526,6 @@ export class CatPhysics {
   // ---- Main tick ----
 
   tick(): CatState {
-    this.animTick++;
     this.state.ticksInState++;
 
     // Fish spawn timer (paused during eat animation)
@@ -552,121 +612,22 @@ export class CatPhysics {
       }
 
       case 'run_then_jump': {
-        const dx = this.targetCol - this.state.col;
-        if (Math.abs(dx) < runSpeed) {
-          this.state.col = this.targetCol;
-          this.jumpStartCol = this.state.col;
-          this.jumpStartLine = this.state.line;
-          this.setState('jump');
-          const maxH = CatPhysics.MAX_H_CAP;
-          let jumpTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Best-effort cap — text constraint always wins
-          if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
-            const cappedCol = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
-            const reclamped = this.clampToTextEdges(this.targetLine, cappedCol);
-            if (Math.abs(reclamped - this.jumpStartCol) < Math.abs(jumpTarget - this.jumpStartCol)) {
-              jumpTarget = reclamped;
-            }
-          }
-          this.targetCol = jumpTarget;
-          if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
-            this.state.direction = this.targetCol > this.jumpStartCol ? 'right' : 'left';
-          }
-        } else {
-          this.state.direction = dx > 0 ? 'right' : 'left';
-          this.state.col += (dx > 0 ? 1 : -1) * runSpeed;
-        }
-        this.state.frame = (this.state.frame + 1) % 5;
+        this.tickRunThenVertical('jump', runSpeed);
         break;
       }
 
       case 'run_then_fall': {
-        const dx = this.targetCol - this.state.col;
-        if (Math.abs(dx) < runSpeed) {
-          this.state.col = this.targetCol;
-          this.jumpStartCol = this.state.col;
-          this.jumpStartLine = this.state.line;
-          this.setState('fall');
-          const maxH = CatPhysics.MAX_H_CAP;
-          let fallTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Best-effort cap — text constraint always wins
-          if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
-            const cappedCol = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
-            const reclamped = this.clampToTextEdges(this.targetLine, cappedCol);
-            if (Math.abs(reclamped - this.jumpStartCol) < Math.abs(fallTarget - this.jumpStartCol)) {
-              fallTarget = reclamped;
-            }
-          }
-          this.targetCol = fallTarget;
-          if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
-            this.state.direction = this.targetCol > this.jumpStartCol ? 'right' : 'left';
-          }
-        } else {
-          this.state.direction = dx > 0 ? 'right' : 'left';
-          this.state.col += (dx > 0 ? 1 : -1) * runSpeed;
-        }
-        this.state.frame = (this.state.frame + 1) % 5;
+        this.tickRunThenVertical('fall', runSpeed);
         break;
       }
 
       case 'jump': {
-        const totalDy = this.jumpStartLine - this.targetLine;
-        const hDist = Math.abs(this.targetCol - this.jumpStartCol);
-
-        // Adaptive speed: slow vertical if horizontal distance is large
-        // This caps horizontal speed to ~2× runSpeed
-        const maxHSpeed = runSpeed * 2;
-        const MAX_TICKS = 30; // cap at ~2.4 seconds
-        const minVTicks = totalDy / jumpSpeed;
-        const minHTicks = hDist > 0 ? hDist / maxHSpeed : 0;
-        const jumpTicks = Math.min(MAX_TICKS, Math.max(minVTicks, minHTicks));
-        const effectiveSpeed = totalDy / Math.max(1, jumpTicks);
-
-        const currentDy = this.state.line - this.targetLine;
-        if (currentDy > effectiveSpeed) {
-          this.state.line -= effectiveSpeed;
-          // Linear interpolation: col moves proportionally to vertical progress
-          if (totalDy > 0) {
-            const progress = 1 - ((this.state.line - this.targetLine) / totalDy);
-            this.state.col = this.jumpStartCol + (this.targetCol - this.jumpStartCol) * progress;
-          }
-        } else {
-          this.state.line = this.targetLine;
-          this.state.col = this.targetCol;
-          this.targetLine = -1;
-          this.checkFishEat();
-          if (this.state.action === 'jump') { this.executeNextRouteStep(); }
-        }
+        this.tickVerticalMove('jump', jumpSpeed, runSpeed);
         break;
       }
 
       case 'fall': {
-        const totalDy = this.targetLine - this.jumpStartLine;
-        const hDist = Math.abs(this.targetCol - this.jumpStartCol);
-
-        // Adaptive speed: slow vertical if horizontal distance is large
-        const maxHSpeed = runSpeed * 2;
-        const MAX_TICKS = 30;
-        const minVTicks = totalDy / fallSpeed;
-        const minHTicks = hDist > 0 ? hDist / maxHSpeed : 0;
-        const fallTicks = Math.min(MAX_TICKS, Math.max(minVTicks, minHTicks));
-        const effectiveSpeed = totalDy / Math.max(1, fallTicks);
-
-        const currentDy = this.targetLine - this.state.line;
-        if (currentDy > effectiveSpeed) {
-          this.state.line += effectiveSpeed;
-          // Linear interpolation: col moves proportionally to vertical progress
-          if (totalDy > 0) {
-            const progress = 1 - ((this.targetLine - this.state.line) / totalDy);
-            this.state.col = this.jumpStartCol + (this.targetCol - this.jumpStartCol) * progress;
-          }
-        } else {
-          this.state.line = this.targetLine;
-          this.state.col = this.targetCol;
-          this.targetLine = -1;
-          this.checkFishEat();
-          if (this.state.action === 'fall') { this.executeNextRouteStep(); }
-        }
+        this.tickVerticalMove('fall', fallSpeed, runSpeed);
         break;
       }
     }
