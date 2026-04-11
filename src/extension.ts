@@ -13,6 +13,7 @@ let idleTimeout: NodeJS.Timeout | null = null;
 let catActive = false;
 let lastFootprintCol = -999;
 let currentConfig: ExtensionConfig;
+let log: vscode.OutputChannel;
 
 function readConfig(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration('codeCat');
@@ -44,14 +45,25 @@ function applyConfig(): void {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+  log = vscode.window.createOutputChannel('Code Cat');
+  log.appendLine('Code Cat activating...');
+
   const spritesDir = path.join(context.extensionPath, 'sprites');
   sprites = new SpriteManager(spritesDir);
-  await sprites.load();
+  try {
+    await sprites.load();
+    log.appendLine(`Sprites loaded from ${spritesDir}`);
+  } catch (e: any) {
+    log.appendLine(`ERROR loading sprites: ${e.message}`);
+    vscode.window.showErrorMessage(`Code Cat: Failed to load sprites — ${e.message}`);
+    return;
+  }
 
   currentConfig = readConfig();
   sprites.setColor(currentConfig.catColor);
   renderer = new DecorationRenderer(sprites);
   applyConfig();
+  log.appendLine(`Config: ${JSON.stringify(currentConfig)}`);
 
   // Toggle command
   const toggleCmd = vscode.commands.registerCommand('codeCat.toggle', () => {
@@ -120,6 +132,9 @@ function spawnCat(): void {
   catActive = true;
   lastFootprintCol = -999;
 
+  const state = physics.getState();
+  log.appendLine(`Cat spawned at line ${state.line}, col ${state.col} (cursor was at line ${cursorLine})`);
+
   // Start tick loop (speed-adjusted tick interval)
   const tickMs = Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
   if (tickInterval) { clearInterval(tickInterval); }
@@ -130,24 +145,29 @@ function tickCat(): void {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !catActive) { despawnCat(); return; }
 
-  const state = physics.tick();
-  const fish = physics.getFish();
+  try {
+    const state = physics.tick();
+    const fish = physics.getFish();
 
-  // Render cat with config
-  renderer.renderCat(editor, state, currentConfig);
+    // Render cat with config
+    renderer.renderCat(editor, state, currentConfig);
 
-  // Render fish
-  renderer.renderFish(editor, fish);
+    // Render fish
+    renderer.renderFish(editor, fish);
 
-  // Footprints while running (if enabled)
-  if (currentConfig.showFootprints) {
-    if (state.action === 'run' || state.action === 'run_then_jump' || state.action === 'run_then_fall') {
-      const col = Math.round(state.col);
-      if (Math.abs(col - lastFootprintCol) >= 4) {
-        renderer.addFootprint(editor, Math.round(state.line), col);
-        lastFootprintCol = col;
+    // Footprints while running (if enabled)
+    if (currentConfig.showFootprints) {
+      if (state.action === 'run' || state.action === 'run_then_jump' || state.action === 'run_then_fall') {
+        const col = Math.round(state.col);
+        if (Math.abs(col - lastFootprintCol) >= 4) {
+          renderer.addFootprint(editor, Math.round(state.line), col);
+          lastFootprintCol = col;
+        }
       }
     }
+  } catch (e: any) {
+    log.appendLine(`ERROR in tick: ${e.message}\n${e.stack}`);
+    despawnCat();
   }
 }
 
@@ -161,4 +181,6 @@ function despawnCat(): void {
 export function deactivate() {
   despawnCat();
   if (idleTimeout) { clearTimeout(idleTimeout); }
+  log?.appendLine('Code Cat deactivated');
+  log?.dispose();
 }

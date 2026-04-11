@@ -452,10 +452,26 @@ export class CatPhysics {
     if (edges) { this.state.col = edges.left; }
   }
 
-  spawn(line: number): void {
-    this.state.line = line;
-    const edges = this.textEdges(line);
-    if (edges) { this.state.col = edges.left; }
+  spawn(nearLine: number): void {
+    // Find the nearest non-empty line to spawn on
+    for (let d = 0; d < this.lines.length; d++) {
+      for (const candidate of [nearLine + d, nearLine - d]) {
+        if (candidate >= 0 && candidate < this.lines.length && !this.isEmptyLine(candidate)) {
+          const edges = this.textEdges(candidate);
+          if (edges) {
+            this.state.line = candidate;
+            this.state.col = edges.left;
+            this.setState('idle');
+            this.fishSpawnTimer = 0;
+            this.fish.active = false;
+            return;
+          }
+        }
+      }
+    }
+    // No valid line found — stay at 0,0 in idle
+    this.state.line = 0;
+    this.state.col = 0;
     this.setState('idle');
     this.fishSpawnTimer = 0;
     this.fish.active = false;
