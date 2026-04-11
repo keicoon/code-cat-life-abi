@@ -14,29 +14,27 @@ export class SpriteManager {
   constructor(private spritesDir: string) {}
 
   async load(): Promise<void> {
-    const entries: Array<{ action: string; pattern: string; frameCount: number }> = [
-      { action: 'run_right', pattern: 'cat_{i}_right.svg', frameCount: 5 },
-      { action: 'run_left', pattern: 'cat_{i}_left.svg', frameCount: 5 },
-      { action: 'sleep_right', pattern: 'cat_sleep.svg', frameCount: 1 },
-      { action: 'sleep_left', pattern: 'cat_sleep_left.svg', frameCount: 1 },
-      { action: 'jump_right', pattern: 'cat_jump_right.svg', frameCount: 1 },
-      { action: 'jump_left', pattern: 'cat_jump_left.svg', frameCount: 1 },
-      { action: 'fall_right', pattern: 'cat_fall_right.svg', frameCount: 1 },
-      { action: 'fall_left', pattern: 'cat_fall_left.svg', frameCount: 1 },
-      { action: 'crouch_right', pattern: 'cat_crouch_right.svg', frameCount: 1 },
-      { action: 'crouch_left', pattern: 'cat_crouch_left.svg', frameCount: 1 },
-      { action: 'eat_right', pattern: 'cat_eat_{i}_right.svg', frameCount: 2 },
-      { action: 'eat_left', pattern: 'cat_eat_{i}_left.svg', frameCount: 2 },
-      { action: 'surprise_right', pattern: 'cat_surprise_right.svg', frameCount: 1 },
-      { action: 'surprise_left', pattern: 'cat_surprise_left.svg', frameCount: 1 },
-      { action: 'fish', pattern: 'fish.svg', frameCount: 1 },
-      { action: 'paw', pattern: 'paw.svg', frameCount: 1 },
+    const entries: Array<{ action: string; files: string[] }> = [
+      { action: 'run_right', files: [0,1,2,3,4].map(i => `cat_${i}_right.svg`) },
+      { action: 'run_left', files: [0,1,2,3,4].map(i => `cat_${i}_left.svg`) },
+      { action: 'sleep_right', files: ['cat_sleep.svg'] },
+      { action: 'sleep_left', files: ['cat_sleep_left.svg'] },
+      // Crouch frame precedes jump/fall for a natural wind-up animation
+      { action: 'jump_right', files: ['cat_crouch_right.svg', 'cat_jump_right.svg'] },
+      { action: 'jump_left', files: ['cat_crouch_left.svg', 'cat_jump_left.svg'] },
+      { action: 'fall_right', files: ['cat_crouch_right.svg', 'cat_fall_right.svg'] },
+      { action: 'fall_left', files: ['cat_crouch_left.svg', 'cat_fall_left.svg'] },
+      { action: 'eat_right', files: ['cat_eat_0_right.svg', 'cat_eat_1_right.svg'] },
+      { action: 'eat_left', files: ['cat_eat_0_left.svg', 'cat_eat_1_left.svg'] },
+      { action: 'surprise_right', files: ['cat_surprise_right.svg'] },
+      { action: 'surprise_left', files: ['cat_surprise_left.svg'] },
+      { action: 'fish', files: ['fish.svg'] },
+      { action: 'paw', files: ['paw.svg'] },
     ];
 
     for (const entry of entries) {
       const frames: string[] = [];
-      for (let i = 0; i < entry.frameCount; i++) {
-        const filename = entry.pattern.replace('{i}', String(i));
+      for (const filename of entry.files) {
         const filepath = path.join(this.spritesDir, filename);
         const svg = fs.readFileSync(filepath, 'utf-8');
         frames.push(svg);

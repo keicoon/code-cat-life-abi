@@ -6,7 +6,6 @@ export type CatAction =
   | 'run'
   | 'jump'
   | 'fall'
-  | 'crouch'
   | 'eat'
   | 'surprise'
   | 'run_then_jump'
@@ -53,6 +52,8 @@ export interface PhysicsConfig {
   fishPostEatDelay: number;
   fishChaseTimeout: number;
   idleDuration: number;
+  surpriseDuration: number;
+  eatDuration: number;
 }
 
 export interface ExtensionConfig {
@@ -66,12 +67,14 @@ export interface ExtensionConfig {
 
 export const DEFAULT_PHYSICS: PhysicsConfig = {
   runSpeed: 0.4,
-  jumpSpeed: 0.3,
-  fallSpeed: 0.5,
+  jumpSpeed: 0.15,
+  fallSpeed: 0.2,
   maxJumpLines: 3,
   tickMs: 80,
   fishSpawnInterval: 80,
   fishPostEatDelay: 60,
   fishChaseTimeout: 800,
   idleDuration: 50,
+  surpriseDuration: 15,
+  eatDuration: 20,
 };

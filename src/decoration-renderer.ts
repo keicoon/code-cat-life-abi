@@ -36,9 +36,7 @@ export class DecorationRenderer {
 
     if (line < 0 || line >= editor.document.lineCount) { this.clearCat(); return; }
 
-    const opacity = state.action === 'idle' || state.action === 'sleep'
-      ? (0.7 + 0.3 * Math.sin(state.ticksInState * 0.12)).toFixed(2)
-      : '1';
+    const opacity = '1';
 
     const { catW, catH, liftGap } = getSizes();
 

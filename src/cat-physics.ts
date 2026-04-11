@@ -378,8 +378,7 @@ export class CatPhysics {
     this.fishEaten++;
     this.route = null;
     this.callbacks?.onFishEaten(this.fishEaten);
-    this.setState('idle');
-    this.fishSpawnTimer = -this.config.fishPostEatDelay;
+    this.setState('eat');
   }
 
   private checkFishEat(): void {
@@ -420,14 +419,14 @@ export class CatPhysics {
     this.animTick++;
     this.state.ticksInState++;
 
-    // Fish spawn timer
-    if (!this.fish.active) {
+    // Fish spawn timer (paused during eat animation)
+    if (!this.fish.active && this.state.action !== 'eat') {
       this.fishSpawnTimer++;
       if (this.fishSpawnTimer >= this.config.fishSpawnInterval) {
         this.spawnFish();
         this.fishSpawnTimer = 0;
         if (this.state.action === 'idle' && this.fish.active) {
-          this.decideNextAction();
+          this.setState('surprise');
         }
       }
     } else {
@@ -445,7 +444,21 @@ export class CatPhysics {
       case 'idle':
       case 'sleep':
         if (this.fish.active && this.state.ticksInState > 10) {
+          this.setState('surprise');
+        }
+        break;
+
+      case 'surprise':
+        if (this.state.ticksInState >= this.config.surpriseDuration) {
           this.decideNextAction();
+        }
+        break;
+
+      case 'eat':
+        this.state.frame = Math.floor(this.state.ticksInState / 4) % 2;
+        if (this.state.ticksInState >= this.config.eatDuration) {
+          this.setState('idle');
+          this.fishSpawnTimer = -this.config.fishPostEatDelay;
         }
         break;
 
@@ -505,6 +518,8 @@ export class CatPhysics {
       }
 
       case 'jump': {
+        // Frame 0 = crouch (wind-up), frame 1 = jump
+        this.state.frame = Math.min(1, Math.floor(this.state.ticksInState / 3));
         const totalDy = this.jumpStartLine - this.targetLine;
         const currentDy = this.state.line - this.targetLine;
         if (currentDy > jumpSpeed) {
@@ -525,6 +540,8 @@ export class CatPhysics {
       }
 
       case 'fall': {
+        // Frame 0 = crouch (wind-up), frame 1 = fall
+        this.state.frame = Math.min(1, Math.floor(this.state.ticksInState / 3));
         const totalDy = this.targetLine - this.jumpStartLine;
         const currentDy = this.targetLine - this.state.line;
         if (currentDy > fallSpeed) {
@@ -574,7 +591,8 @@ export class CatPhysics {
             this.state.line = candidate;
             this.state.col = edges.left;
             this.setState('idle');
-            this.fishSpawnTimer = 0;
+            // Fish spawns on the very first tick for an immediate intro
+            this.fishSpawnTimer = this.config.fishSpawnInterval - 1;
             this.fish.active = false;
             this.pathFailCount = 0;
             return;
@@ -586,7 +604,7 @@ export class CatPhysics {
     this.state.line = 0;
     this.state.col = 0;
     this.setState('idle');
-    this.fishSpawnTimer = 0;
+    this.fishSpawnTimer = this.config.fishSpawnInterval - 1;
     this.fish.active = false;
   }
 }
