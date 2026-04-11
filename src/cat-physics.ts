@@ -303,9 +303,15 @@ export class CatPhysics {
     return path.map(step => {
       const bestCol = this.findNearestValidCol(prevLine, step.line, prevCol);
       const col = bestCol >= 0 ? bestCol : step.viaCol;
-      // Track actual landing col (after clamp) so next step optimizes from real position
-      const landingCol = this.clampToTextEdges(step.line, col);
-      prevCol = landingCol;
+      // Estimate actual landing considering per-line horizontal cap
+      const rawLanding = this.clampToTextEdges(step.line, col);
+      const vertDist = Math.abs(step.line - prevLine);
+      const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
+      let estLanding = rawLanding;
+      if (Math.abs(rawLanding - col) > maxH) {
+        estLanding = col + Math.sign(rawLanding - col) * maxH;
+      }
+      prevCol = estLanding;
       prevLine = step.line;
       return { line: step.line, col, action: step.action };
     });
@@ -510,9 +516,22 @@ export class CatPhysics {
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('jump');
+          const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
+          // Per-line horizontal cap: ~3 cols per line (≈ lineHeight/charWidth)
+          const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
           let jumpTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Cap horizontal displacement
-          const maxH = this.config.maxJumpCols;
+          // Bias toward fish/goal for natural diagonal arc instead of straight vertical
+          if (Math.abs(jumpTarget - this.jumpStartCol) < 2 && this.routeGoalCol >= 0) {
+            const goalDir = Math.sign(this.routeGoalCol - this.jumpStartCol);
+            if (goalDir !== 0) {
+              const biasAmount = Math.min(maxH, Math.ceil(vertDist * 1.5));
+              const biased = this.clampToTextEdges(this.targetLine, this.jumpStartCol + goalDir * biasAmount);
+              if (Math.abs(biased - this.jumpStartCol) <= maxH) {
+                jumpTarget = biased;
+              }
+            }
+          }
+          // Enforce per-line horizontal cap
           if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
             jumpTarget = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
           }
@@ -536,9 +555,22 @@ export class CatPhysics {
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('fall');
+          const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
+          // Per-line horizontal cap: ~3 cols per line (≈ lineHeight/charWidth)
+          const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
           let fallTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Cap horizontal displacement
-          const maxH = this.config.maxJumpCols;
+          // Bias toward fish/goal for natural diagonal arc
+          if (Math.abs(fallTarget - this.jumpStartCol) < 2 && this.routeGoalCol >= 0) {
+            const goalDir = Math.sign(this.routeGoalCol - this.jumpStartCol);
+            if (goalDir !== 0) {
+              const biasAmount = Math.min(maxH, Math.ceil(vertDist * 1.5));
+              const biased = this.clampToTextEdges(this.targetLine, this.jumpStartCol + goalDir * biasAmount);
+              if (Math.abs(biased - this.jumpStartCol) <= maxH) {
+                fallTarget = biased;
+              }
+            }
+          }
+          // Enforce per-line horizontal cap
           if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
             fallTarget = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
           }
