@@ -51,6 +51,7 @@ export interface PhysicsConfig {
   fishSpawnInterval: number;
   fishPostEatDelay: number;
   fishChaseTimeout: number;
+  maxJumpCols: number;
   surpriseDuration: number;
   eatDuration: number;
 }
@@ -66,13 +67,14 @@ export interface ExtensionConfig {
 
 export const DEFAULT_PHYSICS: PhysicsConfig = {
   runSpeed: 0.4,
-  jumpSpeed: 0.15,
-  fallSpeed: 0.2,
+  jumpSpeed: 0.2,
+  fallSpeed: 0.25,
   maxJumpLines: 3,
   tickMs: 80,
   fishSpawnInterval: 80,
   fishPostEatDelay: 60,
   fishChaseTimeout: 800,
+  maxJumpCols: 20,
   surpriseDuration: 15,
   eatDuration: 20,
 };

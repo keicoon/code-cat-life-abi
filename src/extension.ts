@@ -134,8 +134,6 @@ function spawnCat(): void {
   if (!editor || !currentConfig.enabled) { return; }
 
   const text = editor.document.getText();
-  if (text.trim().length === 0) { return; }
-
   const { start, end } = getVisibleRange(editor);
   physics.updateTerrain(text, start, end);
 

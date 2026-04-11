@@ -59,6 +59,7 @@ export class CatPhysics {
   private pathFailCount = 0;
   private jumpStartCol = 0;
   private jumpStartLine = 0;
+  private eatPhase = 0; // 0=first eat (fish visible), 1=second eat (fish gone)
 
   constructor(
     private config: PhysicsConfig = DEFAULT_PHYSICS,
@@ -385,10 +386,10 @@ export class CatPhysics {
   }
 
   private eatFish(): void {
-    // Fish stays visible during eat animation
     this.fishEaten++;
     this.route = null;
     this.callbacks?.onFishEaten(this.fishEaten);
+    this.eatPhase = 0; // phase 0: eat with fish visible
     this.setState('eat');
   }
 
@@ -437,6 +438,8 @@ export class CatPhysics {
         this.spawnFish();
         this.fishSpawnTimer = 0;
         if (this.state.action === 'idle' && this.fish.active) {
+          // Face toward the fish
+          this.state.direction = this.fish.col >= this.state.col ? 'right' : 'left';
           this.setState('surprise');
         }
       }
@@ -457,6 +460,7 @@ export class CatPhysics {
       case 'idle':
       case 'sleep':
         if (this.fish.active && this.state.ticksInState > 10) {
+          this.state.direction = this.fish.col >= this.state.col ? 'right' : 'left';
           this.setState('surprise');
         }
         break;
@@ -470,9 +474,16 @@ export class CatPhysics {
       case 'eat':
         this.state.frame = Math.floor(this.state.ticksInState / 4) % 2;
         if (this.state.ticksInState >= this.config.eatDuration) {
-          this.fish.active = false;
-          this.setState('idle');
-          this.fishSpawnTimer = -this.config.fishPostEatDelay;
+          if (this.eatPhase === 0) {
+            // Phase 0 done → fish disappears, start phase 1 (second eat)
+            this.fish.active = false;
+            this.eatPhase = 1;
+            this.setState('eat');
+          } else {
+            // Phase 1 done → go to sleep
+            this.setState('idle');
+            this.fishSpawnTimer = -this.config.fishPostEatDelay;
+          }
         }
         break;
 
@@ -499,7 +510,13 @@ export class CatPhysics {
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('jump');
-          this.targetCol = this.clampToTextEdges(this.targetLine, this.state.col);
+          let jumpTarget = this.clampToTextEdges(this.targetLine, this.state.col);
+          // Cap horizontal displacement
+          const maxH = this.config.maxJumpCols;
+          if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
+            jumpTarget = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
+          }
+          this.targetCol = jumpTarget;
           if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
             this.state.direction = this.targetCol > this.jumpStartCol ? 'right' : 'left';
           }
@@ -519,7 +536,13 @@ export class CatPhysics {
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('fall');
-          this.targetCol = this.clampToTextEdges(this.targetLine, this.state.col);
+          let fallTarget = this.clampToTextEdges(this.targetLine, this.state.col);
+          // Cap horizontal displacement
+          const maxH = this.config.maxJumpCols;
+          if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
+            fallTarget = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
+          }
+          this.targetCol = fallTarget;
           if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
             this.state.direction = this.targetCol > this.jumpStartCol ? 'right' : 'left';
           }

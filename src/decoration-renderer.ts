@@ -109,7 +109,7 @@ export class DecorationRenderer {
           background-size: contain;
           background-repeat: no-repeat;
           background-position: bottom center;
-          filter: drop-shadow(0 0 6px rgba(255,215,0,0.6));
+          filter: drop-shadow(0 0 6px rgba(74,144,217,0.6));
           pointer-events: none;`,
       },
     });
