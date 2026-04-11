@@ -60,6 +60,8 @@ export class CatPhysics {
   private jumpStartCol = 0;
   private jumpStartLine = 0;
   private eatPhase = 0; // 0=first eat (fish visible), 1=second eat (fish gone)
+  private fishConsecutiveCount = 0;
+  private fishConsecutiveMax = 4 + Math.floor(Math.random() * 4); // 4-7
 
   constructor(
     private config: PhysicsConfig = DEFAULT_PHYSICS,
@@ -204,6 +206,18 @@ export class CatPhysics {
     return -1;
   }
 
+  private static readonly MAX_H_CAP = 2;
+
+  /** Minimum horizontal distance between text ranges on two lines (0 if overlapping) */
+  private minTextGap(lineA: number, lineB: number): number {
+    const a = this.textEdges(lineA);
+    const b = this.textEdges(lineB);
+    if (!a || !b) { return Infinity; }
+    if (a.right < b.left) { return b.left - a.right; }
+    if (b.right < a.left) { return a.left - b.right; }
+    return 0;
+  }
+
   private getLineNeighbors(line: number): Neighbor[] {
     const neighbors: Neighbor[] = [];
     const edges = this.textEdges(line);
@@ -213,6 +227,8 @@ export class CatPhysics {
     for (let up = 1; up <= this.config.maxJumpLines; up++) {
       const target = line - up;
       if (target < 0 || this.isEmptyLine(target)) { continue; }
+      // Skip if horizontal gap exceeds maxH — prevents infeasible multi-line jumps
+      if (this.minTextGap(line, target) > CatPhysics.MAX_H_CAP) { continue; }
       const col = this.findRandomVerticalCol(line, target);
       if (col >= 0) {
         // 1-line: cost 2, 2-line: cost 5, 3-line: cost 10
@@ -221,11 +237,14 @@ export class CatPhysics {
       }
     }
 
-    // Fall down: land on first text line below
+    // Fall down: land on first reachable text line below
+    // If the nearest non-empty line has too large a horizontal gap,
+    // continue looking further down (the cat falls through at a clear column)
     for (let down = 1; down < this.lines.length; down++) {
       const target = line + down;
       if (target >= this.lines.length) { break; }
       if (this.isEmptyLine(target)) { continue; }
+      if (this.minTextGap(line, target) > CatPhysics.MAX_H_CAP) { continue; }
       const col = this.findRandomVerticalCol(line, target);
       if (col >= 0) {
         neighbors.push({ line: target, cost: down, viaCol: col, action: 'fall' });
@@ -312,7 +331,7 @@ export class CatPhysics {
 
       // Ensure landing displacement stays within fixed horizontal cap
       const rawLanding = this.clampToTextEdges(step.line, col);
-      const maxH = 2; // fixed: Y lines don't increase X allowance
+      const maxH = CatPhysics.MAX_H_CAP;
       if (Math.abs(rawLanding - col) > maxH) {
         // Transit col too far from destination text — move transit closer
         // Cat will run to this adjusted col on the source line before jumping/falling
@@ -428,6 +447,8 @@ export class CatPhysics {
         this.fish.active = false;
         this.fishSpawnTimer = 0;
         this.pathFailCount = 0;
+        this.fishConsecutiveCount = 0;
+        this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
       }
     }
     this.setState('idle');
@@ -466,6 +487,8 @@ export class CatPhysics {
         this.fishSpawnTimer = 0;
         this.route = null;
         this.targetLine = -1;
+        this.fishConsecutiveCount = 0;
+        this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
         this.setState('idle');
       }
     }
@@ -496,9 +519,19 @@ export class CatPhysics {
             this.eatPhase = 1;
             this.setState('eat');
           } else {
-            // Phase 1 done → go to sleep
-            this.setState('idle');
-            this.fishSpawnTimer = -this.config.fishPostEatDelay;
+            // Phase 1 done — check consecutive fish session
+            this.fishConsecutiveCount++;
+            if (this.fishConsecutiveCount >= this.fishConsecutiveMax) {
+              // Session over: go to idle with long delay
+              this.setState('idle');
+              this.fishSpawnTimer = -this.config.fishPostEatDelay;
+              this.fishConsecutiveCount = 0;
+              this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
+            } else {
+              // Quick respawn: short idle then next fish
+              this.setState('idle');
+              this.fishSpawnTimer = this.config.fishSpawnInterval - 10;
+            }
           }
         }
         break;
@@ -525,18 +558,8 @@ export class CatPhysics {
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('jump');
-          const maxH = 2; // fixed: Y lines don't increase X allowance
+          const maxH = CatPhysics.MAX_H_CAP;
           let jumpTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Try shifting landing toward goal within maxH
-          if (this.routeGoalCol >= 0) {
-            const goalDir = Math.sign(this.routeGoalCol - this.jumpStartCol);
-            if (goalDir !== 0) {
-              const shifted = this.clampToTextEdges(this.targetLine, this.jumpStartCol + goalDir * maxH);
-              if (Math.abs(shifted - this.jumpStartCol) <= maxH) {
-                jumpTarget = shifted;
-              }
-            }
-          }
           // Best-effort cap — text constraint always wins
           if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
             const cappedCol = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
@@ -564,18 +587,8 @@ export class CatPhysics {
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('fall');
-          const maxH = 2; // fixed: Y lines don't increase X allowance
+          const maxH = CatPhysics.MAX_H_CAP;
           let fallTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Try shifting landing toward goal within maxH
-          if (this.routeGoalCol >= 0) {
-            const goalDir = Math.sign(this.routeGoalCol - this.jumpStartCol);
-            if (goalDir !== 0) {
-              const shifted = this.clampToTextEdges(this.targetLine, this.jumpStartCol + goalDir * maxH);
-              if (Math.abs(shifted - this.jumpStartCol) <= maxH) {
-                fallTarget = shifted;
-              }
-            }
-          }
           // Best-effort cap — text constraint always wins
           if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
             const cappedCol = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
@@ -673,6 +686,8 @@ export class CatPhysics {
     this.fish.active = false;
     this.fishSpawnTimer = 0;
     this.route = null;
+    this.fishConsecutiveCount = 0;
+    this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
     const edges = this.textEdges(this.state.line);
     if (edges) { this.state.col = edges.left; }
   }
@@ -691,6 +706,8 @@ export class CatPhysics {
             this.fishSpawnTimer = this.config.fishSpawnInterval - 1;
             this.fish.active = false;
             this.pathFailCount = 0;
+            this.fishConsecutiveCount = 0;
+            this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
             return;
           }
         }

@@ -312,6 +312,230 @@ function testStaircaseLargeHorizontal(): void {
   runTicks(physics, lines, 3000, { checkText: true, checkContinuity: true });
 }
 
+function testJumpFallMaxHDisplacement(): void {
+  console.log('\n▸ Test: jump/fall X displacement ≤ maxH=2 (regression)');
+  const maxH = 2;
+
+  // Test on multiple terrains where the cap should be respected
+  const terrains: Array<{ name: string; terrain: string }> = [
+    { name: 'staircase', terrain: TERRAIN_STAIRCASE },
+    { name: 'wide_gap', terrain: TERRAIN_WIDE_GAP },
+    { name: 'basic', terrain: TERRAIN_BASIC },
+  ];
+
+  for (const { name, terrain } of terrains) {
+    const lines = terrain.split('\n');
+    const physics = new CatPhysics({ ...DEFAULT_PHYSICS, fishSpawnInterval: 5 });
+    physics.updateTerrain(terrain);
+    physics.spawn(0);
+
+    let jumpStartCol: number | null = null;
+    let fallStartCol: number | null = null;
+
+    for (let i = 0; i < 3000; i++) {
+      const prev = physics.getState();
+      const state = physics.tick();
+
+      // Detect jump start (transition into jump)
+      if (state.action === 'jump' && prev.action !== 'jump') {
+        jumpStartCol = state.col;
+      }
+      // Detect jump landing
+      if (prev.action === 'jump' && state.action !== 'jump' && jumpStartCol !== null) {
+        const displacement = Math.abs(state.col - jumpStartCol);
+        assert(
+          displacement <= maxH + 0.01,
+          `[${name}] Jump X displacement at tick ${i}`,
+          `|${state.col.toFixed(2)} - ${jumpStartCol.toFixed(2)}| = ${displacement.toFixed(2)} > maxH=${maxH}`,
+        );
+        jumpStartCol = null;
+      }
+
+      // Detect fall start (transition into fall)
+      if (state.action === 'fall' && prev.action !== 'fall') {
+        fallStartCol = state.col;
+      }
+      // Detect fall landing
+      if (prev.action === 'fall' && state.action !== 'fall' && fallStartCol !== null) {
+        const displacement = Math.abs(state.col - fallStartCol);
+        assert(
+          displacement <= maxH + 0.01,
+          `[${name}] Fall X displacement at tick ${i}`,
+          `|${state.col.toFixed(2)} - ${fallStartCol.toFixed(2)}| = ${displacement.toFixed(2)} > maxH=${maxH}`,
+        );
+        fallStartCol = null;
+      }
+    }
+  }
+}
+
+function testConsecutiveFishEating(): void {
+  console.log('\n▸ Test: consecutive fish eating (4-7 per session)');
+
+  // Use seeded-style approach: run multiple sessions and check counts
+  const lines = TERRAIN_UNIFORM.split('\n');
+
+  const sessionCounts: number[] = [];
+
+  // Run several sessions to observe the pattern
+  for (let session = 0; session < 10; session++) {
+    const physics = new CatPhysics({ ...DEFAULT_PHYSICS, fishSpawnInterval: 5 });
+    physics.updateTerrain(TERRAIN_UNIFORM);
+    physics.spawn(0);
+
+    let eatCount = 0;
+    let prevAction = '';
+    let hadLongIdle = false;
+    let idleTicks = 0;
+    // fishPostEatDelay is 60, so > 30 ticks of idle means long idle
+    const longIdleThreshold = 30;
+
+    for (let i = 0; i < 8000; i++) {
+      const state = physics.tick();
+
+      // Count eats (transition into eat)
+      if (state.action === 'eat' && prevAction !== 'eat') {
+        eatCount++;
+      }
+
+      // Track idle duration
+      if (state.action === 'idle' || state.action === 'sleep') {
+        idleTicks++;
+      } else {
+        if (idleTicks >= longIdleThreshold && eatCount > 0) {
+          hadLongIdle = true;
+        }
+        idleTicks = 0;
+      }
+
+      // Once we detect a long idle after some eats, that's one session
+      if (hadLongIdle) {
+        break;
+      }
+
+      prevAction = state.action;
+    }
+
+    if (eatCount > 0) {
+      sessionCounts.push(eatCount);
+    }
+  }
+
+  // Check that we got some sessions
+  assert(
+    sessionCounts.length >= 3,
+    'Got enough completed sessions',
+    `Only got ${sessionCounts.length} sessions`,
+  );
+
+  // Check each session count is in the 4-7 range
+  for (let i = 0; i < sessionCounts.length; i++) {
+    assert(
+      sessionCounts[i] >= 4 && sessionCounts[i] <= 7,
+      `Session ${i} fish count in range [4,7]`,
+      `Got ${sessionCounts[i]}`,
+    );
+  }
+
+  // Check we got some variation (not all the same)
+  const unique = new Set(sessionCounts);
+  if (sessionCounts.length >= 5) {
+    assert(
+      unique.size >= 2,
+      'Fish counts show variation',
+      `All sessions had ${sessionCounts[0]} fish`,
+    );
+  }
+}
+
+function testNoJitterDuringJumpFall(): void {
+  console.log('\n▸ Test: no X drift during jump/fall on uniform terrain');
+
+  // On uniform terrain, jump/fall should have minimal X displacement
+  // because text ranges are identical on every line
+  const lines = TERRAIN_UNIFORM.split('\n');
+
+  for (let trial = 0; trial < 20; trial++) {
+    const physics = new CatPhysics({ ...DEFAULT_PHYSICS, fishSpawnInterval: 5 });
+    physics.updateTerrain(TERRAIN_UNIFORM);
+    physics.spawn(0);
+
+    let jumpStartCol: number | null = null;
+    let fallStartCol: number | null = null;
+    let prevLandingCol: number | null = null;
+
+    for (let i = 0; i < 2000; i++) {
+      const prev = physics.getState();
+      const state = physics.tick();
+
+      // Track jump start/landing
+      if (state.action === 'jump' && prev.action !== 'jump') {
+        jumpStartCol = state.col;
+      }
+      if (prev.action === 'jump' && state.action !== 'jump' && jumpStartCol !== null) {
+        const displacement = Math.abs(state.col - jumpStartCol);
+        // On uniform terrain, X displacement during jump should be 0 or very small
+        // (only non-zero when text doesn't overlap, which doesn't happen on uniform)
+        assert(
+          displacement <= 0.5,
+          `Trial ${trial}: jump X drift at tick ${i}`,
+          `|${state.col.toFixed(2)} - ${jumpStartCol.toFixed(2)}| = ${displacement.toFixed(2)}`,
+        );
+
+        // Check for "drift then reverse" pattern
+        if (prevLandingCol !== null) {
+          const runToJumpStart = jumpStartCol - prevLandingCol;
+          const jumpDrift = state.col - jumpStartCol;
+          // If the run reversed the previous jump's drift, that's jitter
+          if (Math.abs(runToJumpStart) > 0.5 && Math.abs(jumpDrift) > 0.5) {
+            const reversed = Math.sign(runToJumpStart) !== Math.sign(jumpDrift);
+            assert(
+              !reversed,
+              `Trial ${trial}: drift-reverse jitter at tick ${i}`,
+              `run ${runToJumpStart.toFixed(2)} then jump ${jumpDrift.toFixed(2)}`,
+            );
+          }
+        }
+        prevLandingCol = state.col;
+        jumpStartCol = null;
+      }
+
+      // Track fall start/landing (same logic)
+      if (state.action === 'fall' && prev.action !== 'fall') {
+        fallStartCol = state.col;
+      }
+      if (prev.action === 'fall' && state.action !== 'fall' && fallStartCol !== null) {
+        const displacement = Math.abs(state.col - fallStartCol);
+        assert(
+          displacement <= 0.5,
+          `Trial ${trial}: fall X drift at tick ${i}`,
+          `|${state.col.toFixed(2)} - ${fallStartCol.toFixed(2)}| = ${displacement.toFixed(2)}`,
+        );
+
+        if (prevLandingCol !== null) {
+          const runToFallStart = fallStartCol - prevLandingCol;
+          const fallDrift = state.col - fallStartCol;
+          if (Math.abs(runToFallStart) > 0.5 && Math.abs(fallDrift) > 0.5) {
+            const reversed = Math.sign(runToFallStart) !== Math.sign(fallDrift);
+            assert(
+              !reversed,
+              `Trial ${trial}: drift-reverse jitter at tick ${i}`,
+              `run ${runToFallStart.toFixed(2)} then fall ${fallDrift.toFixed(2)}`,
+            );
+          }
+        }
+        prevLandingCol = state.col;
+        fallStartCol = null;
+      }
+
+      // Reset tracking on idle
+      if (state.action === 'idle' || state.action === 'sleep') {
+        prevLandingCol = null;
+      }
+    }
+  }
+}
+
 // ── main ───────────────────────────────────────────────────────────
 
 console.log('═══════════════════════════════════════════');
@@ -327,6 +551,9 @@ testVisibleRangeConstraint();
 testFishSpawnOnReachablePosition();
 testLongRunWithWideGap();
 testStaircaseLargeHorizontal();
+testJumpFallMaxHDisplacement();
+testConsecutiveFishEating();
+testNoJitterDuringJumpFall();
 
 console.log('\n═══════════════════════════════════════════');
 console.log(`  Results: ${passed} passed, ${failed} failed`);
