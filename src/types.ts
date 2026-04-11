@@ -40,7 +40,7 @@ export interface TextEdge {
 export interface RouteStep {
   line: number;
   col: number;
-  action: 'run' | 'jump' | 'fall';
+  action: 'jump' | 'fall';
 }
 
 export interface PhysicsConfig {

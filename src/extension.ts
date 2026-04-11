@@ -73,13 +73,13 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(toggleCmd);
 
-  // React to config changes
+  // React to config changes — despawn first to avoid stale physics state
   const configListener = vscode.workspace.onDidChangeConfiguration(e => {
     if (e.affectsConfiguration('codeCat')) {
       const wasEnabled = currentConfig.enabled;
+      despawnCat();
       applyConfig();
-      if (!currentConfig.enabled) { despawnCat(); }
-      else if (!wasEnabled && currentConfig.enabled) { resetIdleTimer(); }
+      if (currentConfig.enabled) { resetIdleTimer(); }
     }
   });
   context.subscriptions.push(configListener);
