@@ -310,10 +310,9 @@ export class CatPhysics {
       const bestCol = this.findNearestValidCol(prevLine, step.line, preferCol);
       let col = bestCol >= 0 ? bestCol : step.viaCol;
 
-      // Ensure landing displacement stays within per-line cap
+      // Ensure landing displacement stays within fixed horizontal cap
       const rawLanding = this.clampToTextEdges(step.line, col);
-      const vertDist = Math.abs(step.line - prevLine);
-      const maxH = Math.min(this.config.maxJumpCols, Math.max(2, vertDist * 2));
+      const maxH = 2; // fixed: Y lines don't increase X allowance
       if (Math.abs(rawLanding - col) > maxH) {
         // Transit col too far from destination text — move transit closer
         // Cat will run to this adjusted col on the source line before jumping/falling
@@ -526,10 +525,19 @@ export class CatPhysics {
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('jump');
-          const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
-          const maxH = Math.min(this.config.maxJumpCols, Math.max(2, vertDist * 2));
+          const maxH = 2; // fixed: Y lines don't increase X allowance
           let jumpTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Best-effort per-line cap — text constraint always wins
+          // Try shifting landing toward goal within maxH
+          if (this.routeGoalCol >= 0) {
+            const goalDir = Math.sign(this.routeGoalCol - this.jumpStartCol);
+            if (goalDir !== 0) {
+              const shifted = this.clampToTextEdges(this.targetLine, this.jumpStartCol + goalDir * maxH);
+              if (Math.abs(shifted - this.jumpStartCol) <= maxH) {
+                jumpTarget = shifted;
+              }
+            }
+          }
+          // Best-effort cap — text constraint always wins
           if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
             const cappedCol = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
             const reclamped = this.clampToTextEdges(this.targetLine, cappedCol);
@@ -556,10 +564,19 @@ export class CatPhysics {
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('fall');
-          const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
-          const maxH = Math.min(this.config.maxJumpCols, Math.max(2, vertDist * 2));
+          const maxH = 2; // fixed: Y lines don't increase X allowance
           let fallTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Best-effort per-line cap — text constraint always wins
+          // Try shifting landing toward goal within maxH
+          if (this.routeGoalCol >= 0) {
+            const goalDir = Math.sign(this.routeGoalCol - this.jumpStartCol);
+            if (goalDir !== 0) {
+              const shifted = this.clampToTextEdges(this.targetLine, this.jumpStartCol + goalDir * maxH);
+              if (Math.abs(shifted - this.jumpStartCol) <= maxH) {
+                fallTarget = shifted;
+              }
+            }
+          }
+          // Best-effort cap — text constraint always wins
           if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
             const cappedCol = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
             const reclamped = this.clampToTextEdges(this.targetLine, cappedCol);
