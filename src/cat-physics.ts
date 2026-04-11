@@ -57,6 +57,8 @@ export class CatPhysics {
 
   private animTick = 0;
   private pathFailCount = 0;
+  private jumpStartCol = 0;
+  private jumpStartLine = 0;
 
   constructor(
     private config: PhysicsConfig = DEFAULT_PHYSICS,
@@ -145,15 +147,6 @@ export class CatPhysics {
       if (this.isSolid(l, c) || this.isSolid(l, c - 1) || this.isSolid(l, c + 1)) { return false; }
     }
     return true;
-  }
-
-  private findVerticalCol(fromLine: number, toLine: number): number {
-    const edges = this.textEdges(fromLine);
-    if (!edges) { return -1; }
-    for (let c = edges.left; c <= edges.right; c++) {
-      if (this.isVerticalPathClear(fromLine, toLine, c)) { return c; }
-    }
-    return -1;
   }
 
   /** Like findVerticalCol but picks a RANDOM valid column for path variety */
@@ -475,9 +468,14 @@ export class CatPhysics {
         const dx = this.targetCol - this.state.col;
         if (Math.abs(dx) < runSpeed) {
           this.state.col = this.targetCol;
+          // Save start position for linear interpolation during jump
+          this.jumpStartCol = this.state.col;
+          this.jumpStartLine = this.state.line;
           this.setState('jump');
-          // Aim for clamped landing position on destination line
           this.targetCol = this.clampToTextEdges(this.targetLine, this.state.col);
+          if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
+            this.state.direction = this.targetCol > this.jumpStartCol ? 'right' : 'left';
+          }
         } else {
           this.state.direction = dx > 0 ? 'right' : 'left';
           this.state.col += (dx > 0 ? 1 : -1) * runSpeed;
@@ -490,9 +488,14 @@ export class CatPhysics {
         const dx = this.targetCol - this.state.col;
         if (Math.abs(dx) < runSpeed) {
           this.state.col = this.targetCol;
+          // Save start position for linear interpolation during fall
+          this.jumpStartCol = this.state.col;
+          this.jumpStartLine = this.state.line;
           this.setState('fall');
-          // Aim for clamped landing position on destination line
           this.targetCol = this.clampToTextEdges(this.targetLine, this.state.col);
+          if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
+            this.state.direction = this.targetCol > this.jumpStartCol ? 'right' : 'left';
+          }
         } else {
           this.state.direction = dx > 0 ? 'right' : 'left';
           this.state.col += (dx > 0 ? 1 : -1) * runSpeed;
@@ -502,12 +505,15 @@ export class CatPhysics {
       }
 
       case 'jump': {
-        const dy = this.state.line - this.targetLine;
-        if (dy > jumpSpeed) {
+        const totalDy = this.jumpStartLine - this.targetLine;
+        const currentDy = this.state.line - this.targetLine;
+        if (currentDy > jumpSpeed) {
           this.state.line -= jumpSpeed;
-          // Smooth horizontal movement toward landing col
-          const jumpDx = this.targetCol - this.state.col;
-          if (Math.abs(jumpDx) > 0.3) { this.state.col += jumpDx * 0.2; }
+          // Linear interpolation: col moves proportionally to vertical progress
+          if (totalDy > 0) {
+            const progress = 1 - ((this.state.line - this.targetLine) / totalDy);
+            this.state.col = this.jumpStartCol + (this.targetCol - this.jumpStartCol) * progress;
+          }
         } else {
           this.state.line = this.targetLine;
           this.state.col = this.targetCol;
@@ -519,12 +525,15 @@ export class CatPhysics {
       }
 
       case 'fall': {
-        const dy = this.targetLine - this.state.line;
-        if (dy > fallSpeed) {
+        const totalDy = this.targetLine - this.jumpStartLine;
+        const currentDy = this.targetLine - this.state.line;
+        if (currentDy > fallSpeed) {
           this.state.line += fallSpeed;
-          // Smooth horizontal movement toward landing col
-          const fallDx = this.targetCol - this.state.col;
-          if (Math.abs(fallDx) > 0.3) { this.state.col += fallDx * 0.2; }
+          // Linear interpolation: col moves proportionally to vertical progress
+          if (totalDy > 0) {
+            const progress = 1 - ((this.targetLine - this.state.line) / totalDy);
+            this.state.col = this.jumpStartCol + (this.targetCol - this.jumpStartCol) * progress;
+          }
         } else {
           this.state.line = this.targetLine;
           this.state.col = this.targetCol;
