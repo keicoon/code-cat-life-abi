@@ -5,9 +5,9 @@
 // ============================================================
 
 // --- Dense header ---
-import { readFileSync } from "fs";
-import { join, resolve } from "path";
-import { createServer } from "http";
+const readFileSync = (p: string) => p;
+const join = (...args: string[]) => args.join("/");
+const createServer = (handler: Function) => ({ listen: () => {} });
 
 // --- Short staircase ---
 function initApp() { return true; }
