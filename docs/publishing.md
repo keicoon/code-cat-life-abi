@@ -23,11 +23,15 @@
 
 ```bash
 # 빌드 & 패키징
-npm run compile && npx vsce package
+npm run package:vsix
 
 # 설치
 code --install-extension code-cat-<version>.vsix
 ```
+
+- 현재 저장소 루트에는 이미 생성된 VSIX 예시인 `code-cat-0.0.1.vsix`가 있을 수 있음
+- 실제 배포 파일에는 `.vscodeignore` 기준으로 `src/`, `docs/`, `demo/`, `prototype/` 등이 제외됨
+- 패키징 전에는 항상 `npm test`까지 한 번 통과시키는 편이 안전함
 
 ## 3. 마켓플레이스 배포
 
@@ -63,6 +67,8 @@ npx vsce publish major
 - [ ] `icon.png` — 128x128 이상 권장
 - [ ] `CHANGELOG.md` — 버전별 변경 내역 (선택사항이지만 권장)
 - [ ] `npm run compile` — 빌드 에러 없는지 확인
+- [ ] `npm test` — 이동 회귀 및 먹기 후 대기 포즈 회귀 확인
+- [ ] `.vscodeignore` — VSIX에 포함/제외할 파일 확인
 
 ## 5. 배포 취소 / 삭제
 

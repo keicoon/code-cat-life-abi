@@ -22,7 +22,7 @@
 | idle/sleep | 위치 변하지 않음 |
 | run | `targetCol = clampToTextEdges(line, goalCol)` |
 | run_then_jump/fall | 트랜짓 col = `clampToTextEdges(sourceLine, col)` |
-| jump/fall 착지 | `targetCol ∈ {startCol, startCol ± 2}` 중 대상 라인에 유효한 착지점 |
+| jump/fall 착지 | `targetCol ∈ {startCol, startCol ± (2 × lineDelta)}` 중 대상 라인에 유효한 착지점, 불가능하면 `startCol` |
 | jump/fall 중간 | 선형 보간 (start→target, 둘 다 텍스트 위) |
 
 ---
@@ -41,23 +41,28 @@
 
 ## 규칙 3: 점프/낙하 수평 제한 (Horizontal Cap) — 🟡 최선 노력
 
-> Y축 이동 중 X축 이동은 **jump, fall 모두 가능**하다. 다만 X 이동량은 매 스텝마다 **0 또는 고정값 2컬럼**만 허용한다.
+> Y축 이동 중 X축 이동은 **jump, fall 모두 가능**하다. 다만 X 이동량은 매 스텝마다 **0 또는 `2 × 이동 라인 수`**만 허용한다.
 
 ```
-maxH = 2  (고정 — vertDist에 비례하지 않음)
+maxH = 2 × lineDelta
 ```
 
-- jump/fall 모두: X 이동량은 `0` 또는 `2` 컬럼
+- jump/fall 모두: X 이동량은 `0` 또는 `2 × lineDelta` 컬럼
 - 1줄 점프/낙하: 최대 X = 2 컬럼
-- 3줄 점프/낙하: 최대 X = 2 컬럼 (동일)
-- goal과의 X 차이가 2보다 작으면 Y 이동 중에는 X를 움직이지 않고, 남은 차이는 run에서 정리
-- 여러 Y 스텝이 이어지면 매 스텝마다 2컬럼씩 X 이동 → 점진적 접근
+- 2줄 점프/낙하: 최대 X = 4 컬럼
+- 3줄 점프/낙하: 최대 X = 6 컬럼
+- goal 방향으로 stride가 가능하면, goal과의 X 차이가 작아도 Y 이동 중 X를 포함한다
+- scaled diagonal 착지가 텍스트 위에 불가능하면 같은 스텝에서는 `0` stride로 fallback 한다
+- 같은 추적에서 goal을 지나친 뒤에는 반대 방향 stride 대신 `0` stride만 허용한다
+- goal 방향과 반대되는 X stride는 허용하지 않음
+- 여러 Y 스텝이 이어지면 매 스텝마다 `2 × lineDelta` 규칙으로 X 이동 → 점진적 접근
 
 ### 골 방향 X 분산
-- 경로 플래너가 `preferCol`을 골 방향으로 점진 이동
-- 실행 시점에서 goal이 충분히 멀면(`|goalDelta| >= 2`) 골 방향으로 정확히 2컬럼 이동
-- goal이 가까우면(`|goalDelta| < 2`) partial stride는 금지하고 0컬럼 이동
-- 여러 Y 스텝에 걸쳐 X 이동이 자연스럽게 분산
+- 경로 플래너는 각 vertical step을 현재 위치 기준으로 다시 잡아서, source line에서 과하게 미리 달리지 않는다
+- goal 방향 stride가 가능하면 그 방향으로 정확히 `2 × lineDelta` 컬럼 이동한다
+- goal과 X가 이미 정렬된 상태에서도, 뒤에 남은 Y 스텝이 있으면 임시 대각선을 한 번 쓰고 다음 스텝에서 다시 goal X로 정렬할 수 있다
+- same-X 상황에서 좌우가 모두 가능하면 현재 바라보는 방향을 우선 사용해 고정 편향을 줄인다
+- 마지막 vertical step에서는 굳이 억지 대각선을 만들지 않고 goal X에 맞춘다
 
 ---
 
@@ -77,6 +82,17 @@ maxH = 2  (고정 — vertDist에 비례하지 않음)
 - jump/fall은 수직 이동 + 제한된 수평 이동
 - 큰 수평 이동이 필요하면 해당 라인에서 **run**으로 이동 후 jump/fall
 - 생선은 A*로 도달 가능한 위치에만 생성 (3회 실패 시 포기)
+
+---
+
+## 규칙 6: 먹기 후 대기와 수면
+
+> 같은 세션 안에서는 생선을 먹은 직후 다음 생선이 뜰 때까지 마지막 먹기 포즈를 유지하고, 세션이 끝나면 sleep으로 쉰다.
+
+- `eat` 애니메이션 2단계가 끝나면 `post_eat` 상태로 전환
+- `post_eat` 상태에서는 마지막 `eat` 프레임을 고정해 표시
+- 세션 카운트(`fishSessionCount`)를 모두 채우면 `sleep` 상태로 전환
+- `sleepTime`이 지나 다음 생선이 스폰되면 `surprise`로 넘어가 다시 추적을 시작
 
 ---
 

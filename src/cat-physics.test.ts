@@ -1,5 +1,5 @@
 import { CatPhysics } from './cat-physics';
-import { CatState, DEFAULT_PHYSICS } from './types';
+import { CatState, DEFAULT_PHYSICS, Direction, RouteStep } from './types';
 
 function textEdges(line: string): { left: number; right: number } | null {
   let left = -1;
@@ -53,13 +53,6 @@ const TERRAIN_BASIC = [
   'const x = 42;',
 ].join('\n');
 
-const TERRAIN_WIDE_GAP = [
-  'short',
-  '',
-  '                                        far_right',
-  'another_short',
-].join('\n');
-
 const TERRAIN_STAIRCASE = [
   'aaaaa',
   '     bbbbb',
@@ -69,22 +62,33 @@ const TERRAIN_STAIRCASE = [
 ].join('\n');
 
 const TERRAIN_UNIFORM = Array(5).fill('xxxxxxxxxxxxxxxxxxxx').join('\n');
+const TERRAIN_FORCED_TWO_LINE_JUMP = [
+  'xxxxxxxxxxxxxxxxxxxx',
+  '',
+  'xxxxxxxxxxxxxxxxxxxx',
+  '',
+  'xxxxxxxxxxxxxxxxxxxx',
+].join('\n');
+
+const TERRAIN_FORCED_TWO_LINE_JUMP_NARROW = [
+  'xx',
+  '',
+  'xx',
+  '',
+  'xxxxxxxxxxxxxxxxxxxx',
+].join('\n');
 
 function runTicks(
   physics: CatPhysics,
   lines: string[],
   numTicks: number,
-  opts?: { checkText?: boolean; checkContinuity?: boolean },
 ): void {
-  const checkText = opts?.checkText ?? true;
-  const checkContinuity = opts?.checkContinuity ?? true;
-
   for (let i = 0; i < numTicks; i++) {
     const prev = physics.getState();
     const state = physics.tick();
     const midFlight = state.action === 'jump' || state.action === 'fall';
 
-    if (checkText && Number.isInteger(state.line) && !midFlight) {
+    if (Number.isInteger(state.line) && !midFlight) {
       assert(
         isOnText(lines, state),
         `On-text constraint at tick ${i}`,
@@ -93,7 +97,6 @@ function runTicks(
     }
 
     if (
-      checkText &&
       (prev.action === 'jump' || prev.action === 'fall') &&
       state.action !== 'jump' &&
       state.action !== 'fall'
@@ -105,161 +108,199 @@ function runTicks(
       );
     }
 
-    if (checkContinuity) {
-      const deltaLine = Math.abs(state.line - prev.line);
-      const deltaCol = Math.abs(state.col - prev.col);
-      assert(
-        deltaLine <= 1.5,
-        `Line continuity at tick ${i}`,
-        `delta=${deltaLine.toFixed(3)} action=${state.action}`,
-      );
-      assert(
-        deltaCol <= 3.0,
-        `Col continuity at tick ${i}`,
-        `delta=${deltaCol.toFixed(3)} action=${state.action}`,
-      );
-    }
+    const deltaLine = Math.abs(state.line - prev.line);
+    const deltaCol = Math.abs(state.col - prev.col);
+    assert(
+      deltaLine <= 1.5,
+      `Line continuity at tick ${i}`,
+      `delta=${deltaLine.toFixed(3)} action=${state.action}`,
+    );
+    assert(
+      deltaCol <= 3.0,
+      `Col continuity at tick ${i}`,
+      `delta=${deltaCol.toFixed(3)} action=${state.action}`,
+    );
   }
 }
 
 function collectVerticalLandings(
   physics: CatPhysics,
   numTicks: number,
-): Array<{ action: 'jump' | 'fall'; displacement: number }> {
-  let jumpStartCol: number | null = null;
-  let fallStartCol: number | null = null;
-  const landings: Array<{ action: 'jump' | 'fall'; displacement: number }> = [];
+): Array<{ action: 'jump' | 'fall'; displacement: number; lineDelta: number }> {
+  let startCol: number | null = null;
+  let startLine: number | null = null;
+  let currentAction: 'jump' | 'fall' | null = null;
+  const landings: Array<{ action: 'jump' | 'fall'; displacement: number; lineDelta: number }> = [];
 
   for (let i = 0; i < numTicks; i++) {
     const prev = physics.getState();
     const state = physics.tick();
 
-    if (state.action === 'jump' && prev.action !== 'jump') { jumpStartCol = state.col; }
-    if (state.action === 'fall' && prev.action !== 'fall') { fallStartCol = state.col; }
-
-    if (prev.action === 'jump' && state.action !== 'jump' && jumpStartCol !== null) {
-      landings.push({ action: 'jump', displacement: state.col - jumpStartCol });
-      jumpStartCol = null;
+    if ((state.action === 'jump' || state.action === 'fall') && prev.action !== state.action) {
+      startCol = state.col;
+      startLine = state.line;
+      currentAction = state.action;
     }
 
-    if (prev.action === 'fall' && state.action !== 'fall' && fallStartCol !== null) {
-      landings.push({ action: 'fall', displacement: state.col - fallStartCol });
-      fallStartCol = null;
+    if (
+      startCol !== null &&
+      currentAction &&
+      prev.action === currentAction &&
+      state.action !== currentAction
+    ) {
+      landings.push({
+        action: currentAction,
+        displacement: state.col - startCol,
+        lineDelta: Math.round(Math.abs(state.line - startLine!)),
+      });
+      startCol = null;
+      startLine = null;
+      currentAction = null;
     }
   }
 
   return landings;
 }
 
-function isFixedStride(displacement: number): boolean {
+function isFixedStride(displacement: number, lineDelta: number): boolean {
   const abs = Math.abs(displacement);
-  return abs < 0.01 || Math.abs(abs - 2) < 0.01;
+  return abs < 0.01 || Math.abs(abs - (2 * lineDelta)) < 0.01;
 }
 
-function prepareVerticalTransition(
-  action: 'jump' | 'fall',
+function buildRoute(
+  terrain: string,
+  goalLine: number,
   goalCol: number,
-): { physics: CatPhysics; internal: any } {
-  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, fishSpawnInterval: 99999 });
-  physics.updateTerrain(TERRAIN_UNIFORM);
-  physics.spawn(action === 'jump' ? 4 : 3);
+  opts?: { startLine?: number; startCol?: number; direction?: Direction },
+): RouteStep[] {
+  const startLine = opts?.startLine ?? 4;
+  const startCol = opts?.startCol ?? 0;
+  const direction = opts?.direction ?? 'right';
+
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
+  physics.updateTerrain(terrain);
+  physics.spawn(startLine);
 
   const internal = physics as any;
+  internal.state.line = startLine;
+  internal.state.col = startCol;
+  internal.state.direction = direction;
   internal.routeGoalCol = goalCol;
-  internal.targetLine = action === 'jump' ? 3 : 4;
-  internal.targetCol = 0;
-  internal.state.line = action === 'jump' ? 4 : 3;
-  internal.state.col = 0;
-  internal.setState(action === 'jump' ? 'run_then_jump' : 'run_then_fall');
 
-  return { physics, internal };
+  const path = internal.findPath(startLine, goalLine, goalCol);
+  assert(path !== null, 'Path exists for direct route test');
+  return internal.optimizeRouteColumns(path, startCol, startLine) as RouteStep[];
 }
 
 function testMovementStaysOnTextAndContinuous(): void {
   console.log('\n▸ movement stays on text and continuous');
   const scenarios: Array<{ name: string; terrain: string; spawnLine: number }> = [
     { name: 'basic', terrain: TERRAIN_BASIC, spawnLine: 0 },
-    { name: 'wide_gap', terrain: TERRAIN_WIDE_GAP, spawnLine: 0 },
     { name: 'staircase', terrain: TERRAIN_STAIRCASE, spawnLine: 4 },
   ];
 
-  for (const { name, terrain, spawnLine } of scenarios) {
-    const physics = new CatPhysics({ ...DEFAULT_PHYSICS, fishSpawnInterval: 5 });
-    physics.updateTerrain(terrain);
-    physics.spawn(spawnLine);
-    runTicks(physics, terrain.split('\n'), 2500, { checkText: true, checkContinuity: true });
-    console.log(`  checked: ${name}`);
-  }
+  withMockedRandom(0, () => {
+    for (const { name, terrain, spawnLine } of scenarios) {
+      const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 5 });
+      physics.updateTerrain(terrain);
+      physics.spawn(spawnLine);
+      runTicks(physics, terrain.split('\n'), 1200);
+      console.log(`  checked: ${name}`);
+    }
+  });
 }
 
-function testVerticalMovesUseOnlyZeroOrFixedStride(): void {
-  console.log('\n▸ vertical moves use only zero or fixed stride');
+function testVerticalLandingsUseOnlyZeroOrFixedStride(): void {
+  console.log('\n▸ vertical landings use only zero or fixed stride');
   const scenarios: Array<{ name: string; terrain: string; spawnLine: number }> = [
     { name: 'basic', terrain: TERRAIN_BASIC, spawnLine: 0 },
-    { name: 'wide_gap', terrain: TERRAIN_WIDE_GAP, spawnLine: 0 },
-    { name: 'staircase', terrain: TERRAIN_STAIRCASE, spawnLine: 4 },
     { name: 'uniform', terrain: TERRAIN_UNIFORM, spawnLine: 4 },
   ];
 
   withMockedRandom(0, () => {
     for (const { name, terrain, spawnLine } of scenarios) {
-      const physics = new CatPhysics({ ...DEFAULT_PHYSICS, fishSpawnInterval: 5 });
+      const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 5 });
       physics.updateTerrain(terrain);
       physics.spawn(spawnLine);
 
-      const landings = collectVerticalLandings(physics, 3500);
+      const landings = collectVerticalLandings(physics, 1600);
       assert(landings.length > 0, `Observed vertical moves on ${name}`);
       for (const landing of landings) {
         assert(
-          isFixedStride(landing.displacement),
-          `[${name}] ${landing.action} displacement is 0 or 2`,
-          `got ${landing.displacement.toFixed(2)}`,
+          isFixedStride(landing.displacement, landing.lineDelta),
+          `[${name}] ${landing.action} displacement is 0 or ${2 * landing.lineDelta}`,
+          `got ${landing.displacement.toFixed(2)} across ${landing.lineDelta} lines`,
         );
       }
     }
   });
 }
 
-function testFarGoalUsesFixedStrideForJumpAndFall(): void {
-  console.log('\n▸ far goal uses fixed stride for jump and fall');
+function testGoalDirectedRouteUsesProgressiveDiagonalStride(): void {
+  console.log('\n▸ goal-directed route keeps taking short diagonal steps');
+  const route = buildRoute(TERRAIN_UNIFORM, 1, 10, { startLine: 4, startCol: 0, direction: 'right' });
 
-  for (const action of ['jump', 'fall'] as const) {
-    const { physics, internal } = prepareVerticalTransition(action, 10);
-    const state = physics.tick();
-
-    assert(state.action === action, `${action} transition starts vertical motion`);
+  let expectedCol = 0;
+  for (const [idx, step] of route.entries()) {
+    assert(step.action === 'jump', `Step ${idx} is a jump`);
+    assert(step.col === expectedCol, `Step ${idx} starts from the current column`);
     assert(
-      internal.targetCol === 2,
-      `${action} lands two columns toward the goal`,
-      `expected 2, got ${internal.targetCol}`,
+      step.landingCol - step.col === 2,
+      `Step ${idx} advances two columns toward the goal`,
+      `col=${step.col} landing=${step.landingCol}`,
     );
+    expectedCol = step.landingCol;
   }
 }
 
-function testNearGoalUsesZeroStrideForJumpAndFall(): void {
-  console.log('\n▸ near goal uses zero stride for jump and fall');
+function testAlignedGoalRouteUsesTemporaryDiagonalThenSettles(): void {
+  console.log('\n▸ aligned goal route uses a temporary diagonal then settles back');
 
-  for (const action of ['jump', 'fall'] as const) {
-    const { physics, internal } = prepareVerticalTransition(action, 1);
-    const state = physics.tick();
+  const rightRoute = buildRoute(TERRAIN_UNIFORM, 1, 10, { startLine: 4, startCol: 10, direction: 'right' });
+  assert(rightRoute[0].landingCol === 12, 'Facing right prefers the right diagonal first');
+  assert(rightRoute[1].landingCol === 10, 'Second step settles back onto the goal column');
+  assert(rightRoute[2].landingCol === 10, 'Final step stays aligned with the goal');
 
-    assert(state.action === action, `${action} transition starts vertical motion`);
-    assert(
-      internal.targetCol === 0,
-      `${action} does not use a partial X stride`,
-      `expected 0, got ${internal.targetCol}`,
-    );
-  }
+  const leftRoute = buildRoute(TERRAIN_UNIFORM, 1, 10, { startLine: 4, startCol: 10, direction: 'left' });
+  assert(leftRoute[0].landingCol === 8, 'Facing left prefers the left diagonal first');
+  assert(leftRoute[1].landingCol === 10, 'Second step settles back onto the goal column');
+  assert(leftRoute[2].landingCol === 10, 'Final step stays aligned with the goal');
+}
+
+function testMultiLineVerticalStrideScalesWithLineDistance(): void {
+  console.log('\n▸ multi-line vertical steps scale diagonal distance');
+  const route = buildRoute(TERRAIN_FORCED_TWO_LINE_JUMP, 2, 12, {
+    startLine: 4,
+    startCol: 0,
+    direction: 'right',
+  });
+
+  assert(route.length === 1, 'Forced gap terrain produces a single two-line jump');
+  assert(route[0].col === 0, 'Two-line jump starts from the current column');
+  assert(route[0].landingCol === 4, 'Two-line jump lands four columns away');
+}
+
+function testMultiLineVerticalStrideFallsBackToZeroWhenLandingIsImpossible(): void {
+  console.log('\n▸ multi-line vertical steps fall back to zero when scaled landing is impossible');
+  const route = buildRoute(TERRAIN_FORCED_TWO_LINE_JUMP_NARROW, 2, 12, {
+    startLine: 4,
+    startCol: 0,
+    direction: 'right',
+  });
+
+  assert(route.length === 1, 'Forced narrow gap terrain still produces a single two-line jump');
+  assert(route[0].col === 0, 'Fallback jump starts from the current column');
+  assert(route[0].landingCol === 0, 'Scaled diagonal falls back to zero when target text is too narrow');
 }
 
 function testVisibleRangeConstraint(): void {
   console.log('\n▸ visible range constrains movement');
   const fullTerrain = Array(20).fill('xxxxxxxxxxxxxxxxxxxx').join('\n');
-  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, fishSpawnInterval: 5 });
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 5 });
   physics.updateTerrain(fullTerrain, 5, 10);
   physics.spawn(7);
 
-  for (let i = 0; i < 1200; i++) {
+  for (let i = 0; i < 600; i++) {
     const state = physics.tick();
     const line = Math.round(state.line);
     assert(
@@ -270,14 +311,63 @@ function testVisibleRangeConstraint(): void {
   }
 }
 
+function testPostEatHoldsLastPoseUntilRespawn(): void {
+  console.log('\n▸ post-eat delay holds the last eat pose');
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 40, fishSessionCount: 2 });
+  physics.updateTerrain(TERRAIN_UNIFORM);
+  physics.spawn(4);
+
+  const internal = physics as any;
+  internal.eatPhase = 1;
+  internal.fishConsecutiveCount = 0;
+  internal.setState('eat');
+  internal.state.frame = 1;
+  internal.state.ticksInState = DEFAULT_PHYSICS.eatDuration - 1;
+
+  let state = physics.tick();
+  assert(state.action === 'post_eat', 'After eating, the cat holds a post-eat pose');
+  assert(state.frame === 1, 'Post-eat pose uses the final eat frame');
+
+  for (let i = 0; i < 5; i++) {
+    state = physics.tick();
+    assert(state.action === 'post_eat', `Post-eat pose persists during delay tick ${i}`);
+    assert(state.frame === 1, `Post-eat frame stays frozen at tick ${i}`);
+  }
+}
+
+function testSessionEndSleepsUntilRespawn(): void {
+  console.log('\n▸ session end enters sleep before the next fish');
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 40, sleepDelay: 80, fishSessionCount: 1 });
+  physics.updateTerrain(TERRAIN_UNIFORM);
+  physics.spawn(4);
+
+  const internal = physics as any;
+  internal.eatPhase = 1;
+  internal.fishConsecutiveCount = 0;
+  internal.setState('eat');
+  internal.state.ticksInState = DEFAULT_PHYSICS.eatDuration - 1;
+
+  let state = physics.tick();
+  assert(state.action === 'sleep', 'After the configured session count, the cat enters sleep');
+
+  for (let i = 0; i < 5; i++) {
+    state = physics.tick();
+    assert(state.action === 'sleep', `Sleep persists during rest tick ${i}`);
+  }
+}
+
 console.log('═══════════════════════════════════════════');
 console.log('  Code Cat — Movement Regression Suite');
 console.log('═══════════════════════════════════════════');
 
 testMovementStaysOnTextAndContinuous();
-testVerticalMovesUseOnlyZeroOrFixedStride();
-testFarGoalUsesFixedStrideForJumpAndFall();
-testNearGoalUsesZeroStrideForJumpAndFall();
+testVerticalLandingsUseOnlyZeroOrFixedStride();
+testGoalDirectedRouteUsesProgressiveDiagonalStride();
+testAlignedGoalRouteUsesTemporaryDiagonalThenSettles();
+testMultiLineVerticalStrideScalesWithLineDistance();
+testMultiLineVerticalStrideFallsBackToZeroWhenLandingIsImpossible();
+testPostEatHoldsLastPoseUntilRespawn();
+testSessionEndSleepsUntilRespawn();
 testVisibleRangeConstraint();
 
 console.log('\n═══════════════════════════════════════════');

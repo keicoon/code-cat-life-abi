@@ -17,11 +17,13 @@ let log: vscode.OutputChannel;
 
 function readConfig(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration('codeCat');
+  const sleepTime = cfg.get<number>('sleepTime');
   return {
     enabled: cfg.get<boolean>('enabled', true),
     catColor: cfg.get<string>('catColor', '#ffffff'),
-    idleTimeout: cfg.get<number>('idleTimeout', 5),
-    fishInterval: cfg.get<number>('fishInterval', 8),
+    idleTimeout: cfg.get<number>('idleTimeout', 2),
+    sleepTime: sleepTime ?? cfg.get<number>('fishInterval', 8),
+    fishSessionCount: cfg.get<number>('fishSessionCount', 5),
     animationSpeed: cfg.get<number>('animationSpeed', 1.0),
     showFootprints: cfg.get<boolean>('showFootprints', true),
   };
@@ -33,11 +35,17 @@ function applyConfig(): void {
 
   // Update physics config from user settings
   const tickMs = Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
-  const fishTicks = Math.round((currentConfig.fishInterval * 1000) / tickMs);
+  const quickFishDelay = Math.max(
+    1,
+    Math.round((DEFAULT_PHYSICS.quickFishDelay * DEFAULT_PHYSICS.tickMs) / tickMs),
+  );
+  const sleepDelay = Math.max(quickFishDelay, Math.round((currentConfig.sleepTime * 1000) / tickMs));
   physics = new CatPhysics({
     ...DEFAULT_PHYSICS,
     tickMs,
-    fishSpawnInterval: fishTicks,
+    quickFishDelay,
+    sleepDelay,
+    fishSessionCount: currentConfig.fishSessionCount,
     runSpeed: DEFAULT_PHYSICS.runSpeed * currentConfig.animationSpeed,
     jumpSpeed: DEFAULT_PHYSICS.jumpSpeed * currentConfig.animationSpeed,
     fallSpeed: DEFAULT_PHYSICS.fallSpeed * currentConfig.animationSpeed,

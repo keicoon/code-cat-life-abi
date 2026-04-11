@@ -7,6 +7,7 @@ export type CatAction =
   | 'jump'
   | 'fall'
   | 'eat'
+  | 'post_eat'
   | 'surprise'
   | 'run_then_jump'
   | 'run_then_fall';
@@ -34,6 +35,7 @@ export interface TextEdge {
 export interface RouteStep {
   line: number;
   col: number;
+  landingCol: number;
   action: 'jump' | 'fall';
 }
 
@@ -43,8 +45,9 @@ export interface PhysicsConfig {
   fallSpeed: number;
   maxJumpLines: number;
   tickMs: number;
-  fishSpawnInterval: number;
-  fishPostEatDelay: number;
+  quickFishDelay: number;
+  sleepDelay: number;
+  fishSessionCount: number;
   fishChaseTimeout: number;
   surpriseDuration: number;
   eatDuration: number;
@@ -54,7 +57,8 @@ export interface ExtensionConfig {
   enabled: boolean;
   catColor: string;
   idleTimeout: number;
-  fishInterval: number;
+  sleepTime: number;
+  fishSessionCount: number;
   animationSpeed: number;
   showFootprints: boolean;
 }
@@ -62,11 +66,12 @@ export interface ExtensionConfig {
 export const DEFAULT_PHYSICS: PhysicsConfig = {
   runSpeed: 0.4,
   jumpSpeed: 0.2,
-  fallSpeed: 0.25,
+  fallSpeed: 0.2,
   maxJumpLines: 3,
   tickMs: 80,
-  fishSpawnInterval: 80,
-  fishPostEatDelay: 60,
+  quickFishDelay: 10,
+  sleepDelay: 100,
+  fishSessionCount: 5,
   fishChaseTimeout: 800,
   surpriseDuration: 15,
   eatDuration: 20,

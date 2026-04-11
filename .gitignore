@@ -7,3 +7,5 @@ sprites/_deprecated/
 prototype/reference-sprites/*.png
 .DS_Store
 out/
+.gifdeps/
+.tmp-preview/

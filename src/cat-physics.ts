@@ -20,6 +20,7 @@ interface AStarNode {
   f: number;
   parent: AStarNode | null;
   viaCol: number;
+  landingCol: number;
   action: 'jump' | 'fall' | null;
 }
 
@@ -27,6 +28,7 @@ interface Neighbor {
   line: number;
   cost: number;
   viaCol: number;
+  landingCol: number;
   action: 'jump' | 'fall';
 }
 
@@ -52,6 +54,7 @@ export class CatPhysics {
   private routeIdx = 0;
   private routeGoalCol = 0;
   private targetCol = 0;
+  private plannedLandingCol = -1;
   private targetLine = -1;
 
   private pathFailCount = 0;
@@ -59,7 +62,6 @@ export class CatPhysics {
   private jumpStartLine = 0;
   private eatPhase = 0; // 0=first eat (fish visible), 1=second eat (fish gone)
   private fishConsecutiveCount = 0;
-  private fishConsecutiveMax = 4 + Math.floor(Math.random() * 4); // 4-7
 
   constructor(
     private config: PhysicsConfig = DEFAULT_PHYSICS,
@@ -152,15 +154,20 @@ export class CatPhysics {
 
   private static readonly MAX_H_CAP = 2;
 
-  private getStrideLandingCols(targetLine: number, transitCol: number): number[] {
+  private getStrideCap(fromLine: number, toLine: number): number {
+    return CatPhysics.MAX_H_CAP * Math.max(1, Math.abs(toLine - fromLine));
+  }
+
+  private getStrideLandingCols(fromLine: number, targetLine: number, transitCol: number): number[] {
     const targetEdges = this.textEdges(targetLine);
     if (!targetEdges) { return []; }
 
+    const stride = this.getStrideCap(fromLine, targetLine);
     const landings: number[] = [];
     for (const landing of [
       transitCol,
-      transitCol - CatPhysics.MAX_H_CAP,
-      transitCol + CatPhysics.MAX_H_CAP,
+      transitCol - stride,
+      transitCol + stride,
     ]) {
       if (landing >= targetEdges.left && landing <= targetEdges.right && !landings.includes(landing)) {
         landings.push(landing);
@@ -169,64 +176,94 @@ export class CatPhysics {
     return landings;
   }
 
-  private getPreferredStrideMoves(transitCol: number): number[] {
-    const goalCol = this.routeGoalCol >= 0 ? this.routeGoalCol : transitCol;
-    const goalDelta = goalCol - transitCol;
-    const towardGoalMove = goalDelta === 0 ? 0 : Math.sign(goalDelta) * CatPhysics.MAX_H_CAP;
+  private getPreferredStrideMoves(
+    fromLine: number,
+    targetLine: number,
+    transitCol: number,
+    goalCol?: number,
+    preferDiagonal = false,
+  ): number[] {
+    const stride = this.getStrideCap(fromLine, targetLine);
 
-    if (Math.abs(goalDelta) >= CatPhysics.MAX_H_CAP) {
-      return [towardGoalMove, 0, -towardGoalMove];
+    if (goalCol === undefined) {
+      return [0, stride, -stride];
     }
-    if (goalDelta === 0) {
-      return [0, CatPhysics.MAX_H_CAP, -CatPhysics.MAX_H_CAP];
+
+    const goalDir = Math.sign(goalCol - transitCol);
+    if (!goalDir) {
+      const landingCols = this.getStrideLandingCols(fromLine, targetLine, transitCol);
+      const facingMove = this.state.direction === 'left'
+        ? -stride
+        : stride;
+      const neutralMoves = [facingMove, -facingMove]
+        .filter((move, idx, moves) =>
+          landingCols.includes(transitCol + move) && moves.indexOf(move) === idx,
+        );
+      return preferDiagonal ? [...neutralMoves, 0] : [0, ...neutralMoves];
     }
-    return [0, towardGoalMove, -towardGoalMove];
+
+    return [goalDir * stride, 0];
   }
 
-  private estimateLandingCol(targetLine: number, transitCol: number): number {
-    const landingCols = this.getStrideLandingCols(targetLine, transitCol);
-    if (landingCols.length === 0) { return this.clampToTextEdges(targetLine, transitCol); }
+  private estimateLandingCol(
+    fromLine: number,
+    targetLine: number,
+    transitCol: number,
+    goalCol?: number,
+    preferDiagonal = false,
+  ): number {
+    const landingCols = this.getStrideLandingCols(fromLine, targetLine, transitCol);
+    if (landingCols.length === 0) { return -1; }
 
-    for (const move of this.getPreferredStrideMoves(transitCol)) {
+    for (const move of this.getPreferredStrideMoves(
+      fromLine,
+      targetLine,
+      transitCol,
+      goalCol,
+      preferDiagonal,
+    )) {
       const landing = transitCol + move;
       if (landingCols.includes(landing)) { return landing; }
     }
-    return landingCols[0];
+    return -1;
   }
 
-  private findRandomStrideTransitCol(fromLine: number, toLine: number): number {
+  /** Find the natural transit/landing pair closest to the current flow of movement. */
+  private findBestVerticalStep(
+    fromLine: number,
+    toLine: number,
+    preferCol: number,
+    goalCol?: number,
+    preferDiagonal = false,
+  ): { col: number; landingCol: number } | null {
     const fromEdges = this.textEdges(fromLine);
-    if (!fromEdges) { return -1; }
-
-    const valid: number[] = [];
-    for (let c = fromEdges.left; c <= fromEdges.right; c++) {
-      if (this.isVerticalPathClear(fromLine, toLine, c) && this.getStrideLandingCols(toLine, c).length > 0) {
-        valid.push(c);
-      }
-    }
-    if (valid.length === 0) { return -1; }
-    return valid[Math.floor(Math.random() * valid.length)];
-  }
-
-  /** Find the transit column closest to preferCol whose landing is 0 or exactly maxH. */
-  private findNearestValidCol(fromLine: number, toLine: number, preferCol: number): number {
-    const fromEdges = this.textEdges(fromLine);
-    if (!fromEdges) { return -1; }
+    if (!fromEdges) { return null; }
 
     let bestCol = -1;
+    let bestLandingCol = -1;
     let bestScore = Infinity;
     for (let c = fromEdges.left; c <= fromEdges.right; c++) {
       if (!this.isVerticalPathClear(fromLine, toLine, c)) { continue; }
-      if (this.getStrideLandingCols(toLine, c).length === 0) { continue; }
-      const landing = this.estimateLandingCol(toLine, c);
-      const goalPenalty = this.routeGoalCol >= 0 ? Math.abs(landing - this.routeGoalCol) : 0;
-      const score = Math.abs(c - preferCol) + goalPenalty * 2;
+      const landing = this.estimateLandingCol(fromLine, toLine, c, goalCol, preferDiagonal);
+      if (landing < 0) { continue; }
+      const goalPenalty = goalCol === undefined ? 0 : Math.abs(landing - goalCol);
+      const zeroPenalty = goalCol !== undefined && preferDiagonal && landing === c ? 3 : 0;
+      const score = Math.abs(c - preferCol) * 3 + goalPenalty + zeroPenalty;
       if (score < bestScore) {
         bestScore = score;
         bestCol = c;
+        bestLandingCol = landing;
+      } else if (score === bestScore && bestCol >= 0) {
+        const currentDelta = Math.abs(c - preferCol);
+        const bestDelta = Math.abs(bestCol - preferCol);
+        if (currentDelta < bestDelta) {
+          bestCol = c;
+          bestLandingCol = landing;
+        }
       }
     }
-    return bestCol;
+    if (bestCol < 0 || bestLandingCol < 0) { return null; }
+    return { col: bestCol, landingCol: bestLandingCol };
   }
 
   /** Minimum horizontal distance between text ranges on two lines (0 if overlapping) */
@@ -239,56 +276,52 @@ export class CatPhysics {
     return 0;
   }
 
-  private getLineNeighbors(line: number): Neighbor[] {
+  private getLineNeighbors(line: number, goalLine: number, goalCol?: number): Neighbor[] {
     const neighbors: Neighbor[] = [];
-    if (!this.textEdges(line)) { return neighbors; }
 
-    // Jump up: max 3 lines — exponential cost strongly prefers 1-line hops
-    for (let up = 1; up <= this.config.maxJumpLines; up++) {
-      const target = line - up;
-      if (target < 0 || this.isEmptyLine(target)) { continue; }
-      // Skip if horizontal gap exceeds maxH — prevents infeasible multi-line jumps
-      if (this.minTextGap(line, target) > CatPhysics.MAX_H_CAP) { continue; }
-      const col = this.findRandomStrideTransitCol(line, target);
-      if (col >= 0) {
-        // 1-line: cost 2, 2-line: cost 5, 3-line: cost 10
-        const cost = up * up + 1;
-        neighbors.push({ line: target, cost, viaCol: col, action: 'jump' });
-      }
-    }
-
-    // Fall down: land on first reachable text line below
-    // If the nearest non-empty line has too large a horizontal gap,
-    // continue looking further down (the cat falls through at a clear column)
-    for (let down = 1; down < this.lines.length; down++) {
-      const target = line + down;
-      if (target >= this.lines.length) { break; }
-      if (this.isEmptyLine(target)) { continue; }
-      if (this.minTextGap(line, target) > CatPhysics.MAX_H_CAP) { continue; }
-      const col = this.findRandomStrideTransitCol(line, target);
-      if (col >= 0) {
-        neighbors.push({ line: target, cost: down, viaCol: col, action: 'fall' });
-      }
-      break;
-    }
-
-    // Adjacent upward moves with a legal stride are the cheapest climb.
-    const upLine = line - 1;
-    if (upLine >= 0 && !this.isEmptyLine(upLine)) {
-      const col = this.findRandomStrideTransitCol(line, upLine);
-      if (col >= 0) {
-        neighbors.push({ line: upLine, cost: 1, viaCol: col, action: 'jump' });
+    for (const action of ['jump', 'fall'] as const) {
+      const direction = action === 'jump' ? -1 : 1;
+      for (let dist = 1; dist <= this.config.maxJumpLines; dist++) {
+        const target = line + direction * dist;
+        if (target < 0 || target >= this.lines.length || this.isEmptyLine(target)) { continue; }
+        if (this.minTextGap(line, target) > this.getStrideCap(line, target)) { continue; }
+        const preferDiagonal = goalCol !== undefined && Math.abs(goalLine - target) > 0;
+        const sourceEdges = this.textEdges(line);
+        const preferredSourceCol = sourceEdges ? this.clampToTextEdges(line, goalCol ?? sourceEdges.left) : 0;
+        const choice = this.findBestVerticalStep(line, target, preferredSourceCol, goalCol, preferDiagonal);
+        if (choice) {
+          const cost = dist * dist + 1;
+          neighbors.push({
+            line: target,
+            cost,
+            viaCol: choice.col,
+            landingCol: choice.landingCol,
+            action,
+          });
+        }
       }
     }
 
     return neighbors;
   }
 
-  private findPath(fromLine: number, toLine: number): Array<{ line: number; viaCol: number; action: 'jump' | 'fall' }> | null {
+  private findPath(
+    fromLine: number,
+    toLine: number,
+    goalCol?: number,
+  ): Array<{ line: number; viaCol: number; landingCol: number; action: 'jump' | 'fall' }> | null {
     if (fromLine === toLine) { return []; }
     if (this.isEmptyLine(fromLine) || this.isEmptyLine(toLine)) { return null; }
 
-    const open: AStarNode[] = [{ line: fromLine, g: 0, f: Math.abs(fromLine - toLine), parent: null, viaCol: -1, action: null }];
+    const open: AStarNode[] = [{
+      line: fromLine,
+      g: 0,
+      f: Math.abs(fromLine - toLine),
+      parent: null,
+      viaCol: -1,
+      landingCol: -1,
+      action: null,
+    }];
     const closed: Record<number, boolean> = {};
 
     while (open.length > 0) {
@@ -299,10 +332,17 @@ export class CatPhysics {
       const cur = open.splice(bestIdx, 1)[0];
 
       if (cur.line === toLine) {
-        const path: Array<{ line: number; viaCol: number; action: 'jump' | 'fall' }> = [];
+        const path: Array<{ line: number; viaCol: number; landingCol: number; action: 'jump' | 'fall' }> = [];
         let n: AStarNode | null = cur;
         while (n?.parent !== null) {
-          if (n) { path.unshift({ line: n.line, viaCol: n.viaCol, action: n.action! }); }
+          if (n) {
+            path.unshift({
+              line: n.line,
+              viaCol: n.viaCol,
+              landingCol: n.landingCol >= 0 ? n.landingCol : n.viaCol,
+              action: n.action!,
+            });
+          }
           n = n?.parent ?? null;
         }
         return path;
@@ -311,13 +351,19 @@ export class CatPhysics {
       if (closed[cur.line]) { continue; }
       closed[cur.line] = true;
 
-      for (const nb of this.getLineNeighbors(cur.line)) {
+      for (const nb of this.getLineNeighbors(cur.line, toLine, goalCol)) {
         if (closed[nb.line]) { continue; }
-        // Random noise creates varied, scenic paths instead of always-optimal routes
-        const noise = 1 + Math.random() * 1.5;
-        const g = cur.g + nb.cost * noise;
+        const g = cur.g + nb.cost;
         const h = Math.abs(nb.line - toLine);
-        open.push({ line: nb.line, g, f: g + h, parent: cur, viaCol: nb.viaCol, action: nb.action });
+        open.push({
+          line: nb.line,
+          g,
+          f: g + h,
+          parent: cur,
+          viaCol: nb.viaCol,
+          landingCol: nb.landingCol,
+          action: nb.action,
+        });
       }
     }
     return null;
@@ -325,9 +371,9 @@ export class CatPhysics {
 
   // ---- Route execution ----
 
-  /** Post-process A* path: reassign columns to minimize horizontal travel */
+  /** Post-process A* path: keep each vertical step anchored to the current flow of movement. */
   private optimizeRouteColumns(
-    path: Array<{ line: number; viaCol: number; action: 'jump' | 'fall' }>,
+    path: Array<{ line: number; viaCol: number; landingCol: number; action: 'jump' | 'fall' }>,
     startCol: number,
     startLine: number,
   ): RouteStep[] {
@@ -335,18 +381,20 @@ export class CatPhysics {
     let prevLine = startLine;
 
     return path.map((step, idx) => {
-      // For multi-step routes, gradually shift preferred col toward goal
-      let preferCol = prevCol;
-      if (path.length > 1 && this.routeGoalCol >= 0) {
-        const progress = (idx + 1) / path.length;
-        preferCol = Math.round(prevCol + (this.routeGoalCol - prevCol) * progress * 0.4);
-      }
-      const bestCol = this.findNearestValidCol(prevLine, step.line, preferCol);
-      const col = bestCol >= 0 ? bestCol : step.viaCol;
-      const estLanding = this.estimateLandingCol(step.line, col);
-      prevCol = estLanding;
+      const preferDiagonal = idx < path.length - 1;
+      const choice = this.findBestVerticalStep(prevLine, step.line, prevCol, this.routeGoalCol, preferDiagonal);
+      const col = choice?.col ?? step.viaCol;
+      let landingCol = choice?.landingCol ?? this.estimateLandingCol(
+        prevLine,
+        step.line,
+        col,
+        this.routeGoalCol,
+        preferDiagonal,
+      );
+      if (landingCol < 0) { landingCol = step.landingCol; }
+      prevCol = landingCol >= 0 ? landingCol : this.clampToTextEdges(step.line, col);
       prevLine = step.line;
-      return { line: step.line, col, action: step.action };
+      return { line: step.line, col, landingCol: prevCol, action: step.action };
     });
   }
 
@@ -354,7 +402,11 @@ export class CatPhysics {
     this.jumpStartCol = this.state.col;
     this.jumpStartLine = this.state.line;
     this.setState(action);
-    this.targetCol = this.estimateLandingCol(this.targetLine, this.jumpStartCol);
+    const landing = this.plannedLandingCol >= 0
+      ? this.plannedLandingCol
+      : this.estimateLandingCol(this.jumpStartLine, this.targetLine, this.jumpStartCol, this.routeGoalCol);
+    this.targetCol = landing >= 0 ? landing : this.clampToTextEdges(this.targetLine, this.jumpStartCol);
+    this.plannedLandingCol = this.targetCol;
     if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
       this.state.direction = this.targetCol > this.jumpStartCol ? 'right' : 'left';
     }
@@ -412,6 +464,7 @@ export class CatPhysics {
       this.route = null;
       this.setState('run');
       this.targetCol = this.clampToTextEdges(Math.round(this.state.line), this.routeGoalCol);
+      this.plannedLandingCol = this.targetCol;
       this.targetLine = -1;
       return;
     }
@@ -420,6 +473,7 @@ export class CatPhysics {
     this.routeIdx++;
     this.setState(step.action === 'jump' ? 'run_then_jump' : 'run_then_fall');
     this.targetCol = step.col;
+    this.plannedLandingCol = step.landingCol;
     this.targetLine = step.line;
   }
 
@@ -431,11 +485,12 @@ export class CatPhysics {
       this.route = null;
       this.setState('run');
       this.targetCol = goalCol;
+      this.plannedLandingCol = goalCol;
       this.targetLine = -1;
       return true;
     }
 
-    const path = this.findPath(currentLine, goalLine);
+    const path = this.findPath(currentLine, goalLine, goalCol);
     if (!path) { return false; }
 
     this.route = this.optimizeRouteColumns(path, Math.round(this.state.col), currentLine);
@@ -496,6 +551,21 @@ export class CatPhysics {
     if (dist < 2) { this.eatFish(); }
   }
 
+  private scheduleNextFish(delayTicks: number): void {
+    this.fishSpawnTimer = this.config.quickFishDelay - Math.max(1, delayTicks);
+  }
+
+  private enterPostEatDelay(delayTicks: number): void {
+    this.setState('post_eat');
+    this.state.frame = 1;
+    this.scheduleNextFish(delayTicks);
+  }
+
+  private enterSleepDelay(delayTicks: number): void {
+    this.setState('sleep');
+    this.scheduleNextFish(delayTicks);
+  }
+
   private decideNextAction(): void {
     if (this.fish.active) {
       if (this.planRoute(this.fish.line, this.fish.col)) {
@@ -509,7 +579,6 @@ export class CatPhysics {
         this.fishSpawnTimer = 0;
         this.pathFailCount = 0;
         this.fishConsecutiveCount = 0;
-        this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
       }
     }
     this.setState('idle');
@@ -531,12 +600,16 @@ export class CatPhysics {
     // Fish spawn timer (paused during eat animation)
     if (!this.fish.active && this.state.action !== 'eat') {
       this.fishSpawnTimer++;
-      if (this.fishSpawnTimer >= this.config.fishSpawnInterval) {
+      if (this.fishSpawnTimer >= this.config.quickFishDelay) {
         this.spawnFish();
         this.fishSpawnTimer = 0;
-        if (this.state.action === 'idle' && this.fish.active) {
+        if (
+          (this.state.action === 'idle' || this.state.action === 'post_eat' || this.state.action === 'sleep') &&
+          this.fish.active
+        ) {
           // Face toward the fish
-          this.state.direction = this.fish.col >= this.state.col ? 'right' : 'left';
+          if (this.fish.col > this.state.col) { this.state.direction = 'right'; }
+          else if (this.fish.col < this.state.col) { this.state.direction = 'left'; }
           this.setState('surprise');
         }
       }
@@ -548,7 +621,6 @@ export class CatPhysics {
         this.route = null;
         this.targetLine = -1;
         this.fishConsecutiveCount = 0;
-        this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
         this.setState('idle');
       }
     }
@@ -559,9 +631,14 @@ export class CatPhysics {
       case 'idle':
       case 'sleep':
         if (this.fish.active && this.state.ticksInState > 10) {
-          this.state.direction = this.fish.col >= this.state.col ? 'right' : 'left';
+          if (this.fish.col > this.state.col) { this.state.direction = 'right'; }
+          else if (this.fish.col < this.state.col) { this.state.direction = 'left'; }
           this.setState('surprise');
         }
+        break;
+
+      case 'post_eat':
+        this.state.frame = 1;
         break;
 
       case 'surprise':
@@ -581,16 +658,13 @@ export class CatPhysics {
           } else {
             // Phase 1 done — check consecutive fish session
             this.fishConsecutiveCount++;
-            if (this.fishConsecutiveCount >= this.fishConsecutiveMax) {
-              // Session over: go to idle with long delay
-              this.setState('idle');
-              this.fishSpawnTimer = -this.config.fishPostEatDelay;
+            if (this.fishConsecutiveCount >= this.config.fishSessionCount) {
+              // Session over: sleep through the configured rest delay
+              this.enterSleepDelay(this.config.sleepDelay);
               this.fishConsecutiveCount = 0;
-              this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
             } else {
-              // Quick respawn: short idle then next fish
-              this.setState('idle');
-              this.fishSpawnTimer = this.config.fishSpawnInterval - 10;
+              // Quick respawn: keep the last eat pose while waiting for the next fish
+              this.enterPostEatDelay(this.config.quickFishDelay);
             }
           }
         }
@@ -647,8 +721,8 @@ export class CatPhysics {
     this.fish.active = false;
     this.fishSpawnTimer = 0;
     this.route = null;
+    this.plannedLandingCol = -1;
     this.fishConsecutiveCount = 0;
-    this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
     const edges = this.textEdges(this.state.line);
     if (edges) { this.state.col = edges.left; }
   }
@@ -664,11 +738,11 @@ export class CatPhysics {
             this.state.col = edges.left;
             this.setState('idle');
             // Fish spawns on the very first tick for an immediate intro
-            this.fishSpawnTimer = this.config.fishSpawnInterval - 1;
+            this.fishSpawnTimer = this.config.quickFishDelay - 1;
             this.fish.active = false;
             this.pathFailCount = 0;
+            this.plannedLandingCol = -1;
             this.fishConsecutiveCount = 0;
-            this.fishConsecutiveMax = 4 + Math.floor(Math.random() * 4);
             return;
           }
         }
@@ -678,7 +752,8 @@ export class CatPhysics {
     this.state.line = 0;
     this.state.col = 0;
     this.setState('idle');
-    this.fishSpawnTimer = this.config.fishSpawnInterval - 1;
+    this.fishSpawnTimer = this.config.quickFishDelay - 1;
     this.fish.active = false;
+    this.plannedLandingCol = -1;
   }
 }

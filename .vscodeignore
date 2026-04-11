@@ -4,6 +4,9 @@ src/**
 prototype/**
 demo/**
 docs/**
+scripts/**
+.gifdeps/**
+.tmp-preview/**
 node_modules/**
 .gitignore
 tsconfig.json

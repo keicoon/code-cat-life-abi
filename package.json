@@ -2,7 +2,7 @@
   "name": "code-cat",
   "displayName": "Code Cat",
   "description": "A cute white cat that lives in your editor, treating code as a platformer terrain",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "keicoon15",
   "icon": "icon.png",
   "engines": {
@@ -38,24 +38,31 @@
         },
         "codeCat.idleTimeout": {
           "type": "number",
-          "default": 5,
+          "default": 2,
           "minimum": 1,
           "maximum": 60,
-          "description": "Seconds of inactivity before the cat appears"
+          "description": "Seconds of inactivity before Code Cat appears in the editor"
         },
-        "codeCat.fishInterval": {
+        "codeCat.sleepTime": {
           "type": "number",
           "default": 8,
           "minimum": 3,
           "maximum": 30,
-          "description": "Seconds between fish spawns"
+          "description": "Seconds the cat sleeps after finishing one fish session before the next session begins"
+        },
+        "codeCat.fishSessionCount": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Number of consecutive fish the cat chases before it goes to sleep"
         },
         "codeCat.animationSpeed": {
           "type": "number",
           "default": 1,
           "minimum": 0.5,
           "maximum": 2,
-          "description": "Animation speed multiplier (0.5 = slow, 1.0 = normal, 2.0 = fast)"
+          "description": "Animation speed multiplier applied to running, jumping, falling, and chase timing (0.5 = slow, 1.0 = normal, 2.0 = fast)"
         },
         "codeCat.showFootprints": {
           "type": "boolean",
@@ -70,7 +77,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
-    "test": "tsc -p ./ && node out/cat-physics.test.js"
+    "test": "tsc -p ./ && node out/cat-physics.test.js",
+    "package:vsix": "npm run compile && npx vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -81,6 +89,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
-  }
+    "url": "https://github.com/keicoon/code-cat.git"
+  },
+  "homepage": "https://github.com/keicoon/code-cat#readme"
 }

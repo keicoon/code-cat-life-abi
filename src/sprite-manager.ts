@@ -92,6 +92,8 @@ export class SpriteManager {
       case 'idle':
       case 'sleep':
         return 'sleep';
+      case 'post_eat':
+        return 'eat';
       default:
         return action;
     }
