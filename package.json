@@ -34,6 +34,15 @@
         "title": "Code Cat Life Abi: Toggle"
       }
     ],
+    "icons": {
+      "code-cat-life-abi-sleep": {
+        "description": "Sleeping cat icon for the Code Cat Life Abi status bar",
+        "default": {
+          "fontPath": "./media/statusbar/code-cat-status.woff",
+          "fontCharacter": "\\F101"
+        }
+      }
+    },
     "configuration": {
       "title": "Code Cat Life Abi",
       "properties": {

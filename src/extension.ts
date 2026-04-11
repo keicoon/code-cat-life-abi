@@ -15,6 +15,8 @@ let isRendering = false;
 let lastFootprintCol = -999;
 let currentConfig: ExtensionConfig;
 let log: vscode.OutputChannel;
+let statusBarItem: vscode.StatusBarItem | null = null;
+let statusState = 'sleep';
 
 function readConfig(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration('codeCatLifeAbi');
@@ -51,6 +53,52 @@ function applyConfig(): void {
     jumpSpeed: DEFAULT_PHYSICS.jumpSpeed * currentConfig.animationSpeed,
     fallSpeed: DEFAULT_PHYSICS.fallSpeed * currentConfig.animationSpeed,
   });
+  statusState = currentConfig.enabled ? 'sleep' : 'disabled';
+  updateStatusBar();
+}
+
+function formatActionLabel(action: string): string {
+  switch (action) {
+    case 'run_then_jump':
+      return 'run then jump';
+    case 'run_then_fall':
+      return 'run then fall';
+    case 'post_eat':
+      return 'post-eat';
+    case 'eat':
+      return 'eating';
+    case 'sleep':
+      return 'sleeping';
+    case 'surprise':
+      return 'surprised';
+    default:
+      return action;
+  }
+}
+
+function updateStatusBar(): void {
+  if (!statusBarItem) { return; }
+
+  if (!currentConfig.enabled) {
+    statusBarItem.hide();
+    return;
+  }
+
+  if (catActive) {
+    statusBarItem.text = 'out';
+    statusBarItem.tooltip = new vscode.MarkdownString(
+      `**Code Cat Life Abi**\n\nCurrent state: \`${statusState}\`\n\nClick to show details.`,
+      true,
+    );
+  } else {
+    statusBarItem.text = '$(code-cat-life-abi-sleep) sleep';
+    statusBarItem.tooltip = new vscode.MarkdownString(
+      `**Code Cat Life Abi**\n\nCurrent state: \`${statusState}\`\n\nClick to show details.`,
+      true,
+    );
+  }
+
+  statusBarItem.show();
 }
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -71,8 +119,21 @@ export async function activate(context: vscode.ExtensionContext) {
   currentConfig = readConfig();
   sprites.setColor(currentConfig.catColor);
   renderer = new DecorationRenderer(sprites);
+  statusBarItem = vscode.window.createStatusBarItem('codeCatLifeAbi.status', vscode.StatusBarAlignment.Right, -50);
+  statusBarItem.name = 'Code Cat Life Abi';
+  statusBarItem.command = 'codeCatLifeAbi.showStatus';
+  context.subscriptions.push(statusBarItem);
   applyConfig();
   log.appendLine(`Config: ${JSON.stringify(currentConfig)}`);
+
+  const showStatusCmd = vscode.commands.registerCommand('codeCatLifeAbi.showStatus', () => {
+    if (!currentConfig.enabled) {
+      vscode.window.showInformationMessage('Code Cat Life Abi is disabled.');
+      return;
+    }
+    vscode.window.showInformationMessage(`Code Cat Life Abi: ${statusState}`);
+  });
+  context.subscriptions.push(showStatusCmd);
 
   // Toggle command
   const toggleCmd = vscode.commands.registerCommand('codeCatLifeAbi.toggle', () => {
@@ -130,6 +191,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Start idle timer
   if (currentConfig.enabled) { resetIdleTimer(); }
+  updateStatusBar();
 }
 
 function resetIdleTimer(): void {
@@ -158,6 +220,8 @@ function spawnCat(): void {
 
   catActive = true;
   lastFootprintCol = -999;
+  statusState = formatActionLabel(physics.getState().action);
+  updateStatusBar();
 
   const state = physics.getState();
   log.appendLine(`Cat spawned at line ${state.line}, col ${state.col} (cursor was at line ${cursorLine})`);
@@ -175,6 +239,11 @@ function tickCat(): void {
   try {
     const state = physics.tick();
     const fish = physics.getFish();
+    const nextStatusState = formatActionLabel(state.action);
+    if (nextStatusState !== statusState) {
+      statusState = nextStatusState;
+      updateStatusBar();
+    }
 
     // Render cat with config (suppress scroll listener during decoration updates)
     isRendering = true;
@@ -204,6 +273,8 @@ function tickCat(): void {
 
 function despawnCat(): void {
   catActive = false;
+  statusState = currentConfig.enabled ? 'sleep' : 'disabled';
+  updateStatusBar();
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
   try {
     renderer?.clearAll();
