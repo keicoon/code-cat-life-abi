@@ -300,8 +300,15 @@ export class CatPhysics {
     let prevCol = startCol;
     let prevLine = startLine;
 
-    return path.map(step => {
-      const bestCol = this.findNearestValidCol(prevLine, step.line, prevCol);
+    return path.map((step, idx) => {
+      // For multi-step routes, gradually shift preferred col toward goal
+      // so X movement is distributed across jumps instead of all at the end
+      let preferCol = prevCol;
+      if (path.length > 1 && this.routeGoalCol >= 0) {
+        const progress = (idx + 1) / path.length;
+        preferCol = Math.round(prevCol + (this.routeGoalCol - prevCol) * progress * 0.4);
+      }
+      const bestCol = this.findNearestValidCol(prevLine, step.line, preferCol);
       const col = bestCol >= 0 ? bestCol : step.viaCol;
       // Estimate actual landing considering per-line horizontal cap
       const rawLanding = this.clampToTextEdges(step.line, col);
@@ -309,7 +316,8 @@ export class CatPhysics {
       const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
       let estLanding = rawLanding;
       if (Math.abs(rawLanding - col) > maxH) {
-        estLanding = col + Math.sign(rawLanding - col) * maxH;
+        const cappedCol = col + Math.sign(rawLanding - col) * maxH;
+        estLanding = this.clampToTextEdges(step.line, cappedCol);
       }
       prevCol = estLanding;
       prevLine = step.line;
@@ -512,28 +520,16 @@ export class CatPhysics {
         const dx = this.targetCol - this.state.col;
         if (Math.abs(dx) < runSpeed) {
           this.state.col = this.targetCol;
-          // Save start position for linear interpolation during jump
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('jump');
           const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
-          // Per-line horizontal cap: ~3 cols per line (≈ lineHeight/charWidth)
           const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
           let jumpTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Bias toward fish/goal for natural diagonal arc instead of straight vertical
-          if (Math.abs(jumpTarget - this.jumpStartCol) < 2 && this.routeGoalCol >= 0) {
-            const goalDir = Math.sign(this.routeGoalCol - this.jumpStartCol);
-            if (goalDir !== 0) {
-              const biasAmount = Math.min(maxH, Math.ceil(vertDist * 1.5));
-              const biased = this.clampToTextEdges(this.targetLine, this.jumpStartCol + goalDir * biasAmount);
-              if (Math.abs(biased - this.jumpStartCol) <= maxH) {
-                jumpTarget = biased;
-              }
-            }
-          }
-          // Enforce per-line horizontal cap
+          // Per-line cap — re-clamp to text after capping
           if (Math.abs(jumpTarget - this.jumpStartCol) > maxH) {
-            jumpTarget = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
+            const cappedCol = this.jumpStartCol + (jumpTarget > this.jumpStartCol ? maxH : -maxH);
+            jumpTarget = this.clampToTextEdges(this.targetLine, cappedCol);
           }
           this.targetCol = jumpTarget;
           if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
@@ -551,28 +547,16 @@ export class CatPhysics {
         const dx = this.targetCol - this.state.col;
         if (Math.abs(dx) < runSpeed) {
           this.state.col = this.targetCol;
-          // Save start position for linear interpolation during fall
           this.jumpStartCol = this.state.col;
           this.jumpStartLine = this.state.line;
           this.setState('fall');
           const vertDist = Math.abs(this.targetLine - this.jumpStartLine);
-          // Per-line horizontal cap: ~3 cols per line (≈ lineHeight/charWidth)
           const maxH = Math.min(this.config.maxJumpCols, Math.max(3, vertDist * 3));
           let fallTarget = this.clampToTextEdges(this.targetLine, this.state.col);
-          // Bias toward fish/goal for natural diagonal arc
-          if (Math.abs(fallTarget - this.jumpStartCol) < 2 && this.routeGoalCol >= 0) {
-            const goalDir = Math.sign(this.routeGoalCol - this.jumpStartCol);
-            if (goalDir !== 0) {
-              const biasAmount = Math.min(maxH, Math.ceil(vertDist * 1.5));
-              const biased = this.clampToTextEdges(this.targetLine, this.jumpStartCol + goalDir * biasAmount);
-              if (Math.abs(biased - this.jumpStartCol) <= maxH) {
-                fallTarget = biased;
-              }
-            }
-          }
-          // Enforce per-line horizontal cap
+          // Per-line cap — re-clamp to text after capping
           if (Math.abs(fallTarget - this.jumpStartCol) > maxH) {
-            fallTarget = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
+            const cappedCol = this.jumpStartCol + (fallTarget > this.jumpStartCol ? maxH : -maxH);
+            fallTarget = this.clampToTextEdges(this.targetLine, cappedCol);
           }
           this.targetCol = fallTarget;
           if (Math.abs(this.targetCol - this.jumpStartCol) > 1) {
