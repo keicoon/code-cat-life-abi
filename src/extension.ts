@@ -146,9 +146,10 @@ function spawnCat(): void {
   const { start, end } = getVisibleRange(editor);
   physics.updateTerrain(text, start, end);
 
-  // Spawn near cursor position (within visible range)
-  const cursorLine = Math.max(start, Math.min(end, editor.selection.active.line));
-  physics.spawn(cursorLine);
+  // Spawn near cursor if visible, otherwise top-left of visible area
+  const cursorLine = editor.selection.active.line;
+  const spawnLine = (cursorLine >= start && cursorLine <= end) ? cursorLine : start;
+  physics.spawn(spawnLine);
 
   catActive = true;
   lastFootprintCol = -999;

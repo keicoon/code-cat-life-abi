@@ -182,8 +182,17 @@ export class CatPhysics {
       }
     }
 
-    // Fallback: any valid column on source line, nearest to preferCol
-    const pref = Math.max(fromEdges.left, Math.min(fromEdges.right, preferCol));
+    // Fallback: no overlap — prefer source col closest to target text
+    // to minimize horizontal displacement during diagonal jump/fall
+    let fallbackPref = preferCol;
+    if (toEdges) {
+      if (fromEdges.right < toEdges.left) {
+        fallbackPref = fromEdges.right;   // source left of target → right edge
+      } else if (fromEdges.left > toEdges.right) {
+        fallbackPref = fromEdges.left;    // source right of target → left edge
+      }
+    }
+    const pref = Math.max(fromEdges.left, Math.min(fromEdges.right, fallbackPref));
     for (let d = 0; d <= fromEdges.right - fromEdges.left; d++) {
       for (const c of [pref + d, pref - d]) {
         if (c >= fromEdges.left && c <= fromEdges.right && this.isVerticalPathClear(fromLine, toLine, c)) {
@@ -293,7 +302,9 @@ export class CatPhysics {
     return path.map(step => {
       const bestCol = this.findNearestValidCol(prevLine, step.line, prevCol);
       const col = bestCol >= 0 ? bestCol : step.viaCol;
-      prevCol = col;
+      // Track actual landing col (after clamp) so next step optimizes from real position
+      const landingCol = this.clampToTextEdges(step.line, col);
+      prevCol = landingCol;
       prevLine = step.line;
       return { line: step.line, col, action: step.action };
     });

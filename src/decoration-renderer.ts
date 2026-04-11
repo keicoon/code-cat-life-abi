@@ -50,11 +50,16 @@ export class DecorationRenderer {
 
     const { catW, catH, liftGap, lineHeightPx, charWidthPx } = getSizes();
 
-    // Smooth sub-pixel offset via CSS transform (eliminates line/col snap)
+    // Anchor col clamped to actual line length (empty/short lines can't host baseCol)
+    const lineLength = editor.document.lineAt(baseLine).text.length;
+    const safeCol = Math.min(baseCol, Math.max(0, lineLength));
+    const colDrift = baseCol - safeCol; // cols lost to short/empty anchor line
+
+    // Smooth sub-pixel offset via CSS transform (includes colDrift compensation)
     const fracLine = state.line - baseLine;
     const fracCol = state.col - baseCol;
     const offsetY = Math.round(fracLine * lineHeightPx);
-    const offsetX = Math.round(fracCol * charWidthPx);
+    const offsetX = Math.round((fracCol + colDrift) * charWidthPx);
 
     const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
@@ -75,8 +80,6 @@ export class DecorationRenderer {
       },
     });
 
-    const lineLength = editor.document.lineAt(baseLine).text.length;
-    const safeCol = Math.min(baseCol, Math.max(0, lineLength));
     const range = new vscode.Range(baseLine, safeCol, baseLine, safeCol);
 
     // Set new first, then dispose old → no visual gap between frames
