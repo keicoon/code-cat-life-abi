@@ -9,3 +9,4 @@ prototype/reference-sprites/*.png
 out/
 .gifdeps/
 .tmp-preview/
+.serena/
