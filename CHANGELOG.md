@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.1
+
+- limited fish spawning to the active contiguous visible editor segment around the cursor/spawn line
+- required exact fish reachability before spawning fish and skipped cat spawn when no reachable fish exist
+- documented the current movement rules and added regression coverage for visible-range and reset edge cases
+- simplified terrain/spawn helpers and cleaned up transient movement/render state handling
+
 ## 0.1.0
 
 - added a Status Bar cat indicator with sleep/out state display
