@@ -32,6 +32,7 @@ export class DecorationRenderer {
   private catDecoration: vscode.TextEditorDecorationType | null = null;
   private fishDecoration: vscode.TextEditorDecorationType | null = null;
   private footprints: Array<{ decoration: vscode.TextEditorDecorationType; timer: NodeJS.Timeout }> = [];
+  private fishRenderKey: string | null = null;
 
   constructor(private sprites: SpriteManager) {}
 
@@ -97,6 +98,8 @@ export class DecorationRenderer {
     if (line < 0 || line >= editor.document.lineCount) { this.clearFish(); return; }
 
     const { fishW, fishH, liftGap } = getSizes();
+    const fishKey = `${editor.document.uri.toString()}:${line}:${col}:${fishW}:${fishH}:${liftGap}`;
+    if (this.fishRenderKey === fishKey && this.fishDecoration) { return; }
 
     const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
@@ -121,6 +124,7 @@ export class DecorationRenderer {
     editor.setDecorations(newDeco, [range]);
     this.fishDecoration?.dispose();
     this.fishDecoration = newDeco;
+    this.fishRenderKey = fishKey;
   }
 
   addFootprint(editor: vscode.TextEditor, line: number, col: number): void {
@@ -168,6 +172,7 @@ export class DecorationRenderer {
   clearFish(): void {
     this.fishDecoration?.dispose();
     this.fishDecoration = null;
+    this.fishRenderKey = null;
   }
 
   clearAll(): void {

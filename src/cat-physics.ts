@@ -33,12 +33,18 @@ interface Neighbor {
   action: 'jump' | 'fall';
 }
 
+interface FishCandidate {
+  line: number;
+  col: number;
+  dist: number;
+}
+
 export class CatPhysics {
   private lines: string[] = [];
   private terrain: boolean[][] = [];
-  private maxCol = 0;
   private visibleStart = 0;
   private visibleEnd = 0;
+  private terrainVersion = 0;
 
   private state: CatState = {
     line: 0, col: 0,
@@ -63,6 +69,8 @@ export class CatPhysics {
   private jumpStartLine = 0;
   private eatPhase = 0; // 0=first eat (fish visible), 1=second eat (fish gone)
   private fishConsecutiveCount = 0;
+  private validFishPositionsCacheKey: string | null = null;
+  private validFishPositionsCache: FishCandidate[] | null = null;
 
   constructor(
     private config: PhysicsConfig = DEFAULT_PHYSICS,
@@ -73,8 +81,9 @@ export class CatPhysics {
 
   updateTerrain(text: string, visibleStart?: number, visibleEnd?: number): void {
     this.lines = text.split('\n');
-    this.maxCol = 0;
     this.terrain = [];
+    this.terrainVersion++;
+    this.invalidateFishCandidateCache();
 
     // Constrain to visible range if provided
     const vStart = visibleStart ?? 0;
@@ -84,13 +93,8 @@ export class CatPhysics {
 
     for (let l = 0; l < this.lines.length; l++) {
       const line = this.lines[l];
-      if (line.length > this.maxCol) { this.maxCol = line.length; }
-      this.terrain[l] = [];
-      for (let c = 0; c <= this.maxCol; c++) {
-        // Only treat lines within visible range as solid terrain
-        const inView = l >= vStart && l <= vEnd;
-        this.terrain[l][c] = inView && c < line.length && line[c] !== ' ';
-      }
+      const inView = l >= vStart && l <= vEnd;
+      this.terrain[l] = Array.from(line, char => inView && char !== ' ');
     }
     this.validatePosition();
   }
@@ -466,6 +470,7 @@ export class CatPhysics {
   private executeNextRouteStep(): void {
     if (!this.route || this.routeIdx >= this.route.length) {
       this.route = null;
+      this.routeIdx = 0;
       this.setState('run');
       this.targetCol = this.clampToTextEdges(Math.round(this.state.line), this.routeGoalCol);
       this.plannedLandingCol = this.targetCol;
@@ -503,42 +508,88 @@ export class CatPhysics {
     return true;
   }
 
-  private canReachPosition(goalLine: number, goalCol: number): boolean {
-    const currentLine = Math.round(this.state.line);
-    if (currentLine === goalLine) { return true; }
-    return this.findPath(currentLine, goalLine, goalCol) !== null;
+  private invalidateFishCandidateCache(): void {
+    this.validFishPositionsCacheKey = null;
+    this.validFishPositionsCache = null;
+  }
+
+  private getFishCandidateCacheKey(): string {
+    return [
+      this.terrainVersion,
+      Math.round(this.state.line),
+      Math.round(this.state.col),
+      this.state.direction,
+      this.visibleStart,
+      this.visibleEnd,
+    ].join(':');
+  }
+
+  private clearMovementPlanState(): void {
+    this.route = null;
+    this.routeIdx = 0;
+    this.routeGoalCol = Math.round(this.state.col);
+    this.targetCol = Math.round(this.state.col);
+    this.plannedLandingCol = -1;
+    this.targetLine = -1;
+    this.pathFailCount = 0;
+    this.jumpStartLine = this.state.line;
+    this.jumpStartCol = this.state.col;
+    this.invalidateFishCandidateCache();
+  }
+
+  private clearFishTargetState(): void {
+    this.fish = { line: -1, col: -1, active: false };
+    this.fishChaseTicks = 0;
+    this.eatPhase = 0;
   }
 
   // ---- Fish ----
 
-  private getValidFishPositions(): Array<{ line: number; col: number; dist: number }> {
+  private getValidFishPositions(): FishCandidate[] {
+    const cacheKey = this.getFishCandidateCacheKey();
+    if (this.validFishPositionsCacheKey === cacheKey && this.validFishPositionsCache) {
+      return this.validFishPositionsCache;
+    }
+
     const catLine = Math.round(this.state.line);
+    const catCol = Math.round(this.state.col);
     const reachable: Record<number, boolean> = {};
-    const positions: Array<{ line: number; col: number; dist: number }> = [];
+    const positions: FishCandidate[] = [];
+    const pathCache = new Map<string, Array<{ line: number; viaCol: number; landingCol: number; action: 'jump' | 'fall' }> | null>();
+
+    const getPath = (toLine: number, goalCol?: number) => {
+      const key = goalCol === undefined ? `${catLine}:${toLine}:line` : `${catLine}:${toLine}:${goalCol}`;
+      if (!pathCache.has(key)) {
+        pathCache.set(key, this.findPath(catLine, toLine, goalCol));
+      }
+      return pathCache.get(key) ?? null;
+    };
 
     // Only consider lines within visible range
     for (let l = this.visibleStart; l <= this.visibleEnd; l++) {
       if (this.isEmptyLine(l)) { continue; }
       if (reachable[l] === undefined) {
-        reachable[l] = (l === catLine) || (this.findPath(catLine, l) !== null);
+        reachable[l] = (l === catLine) || (getPath(l) !== null);
       }
       if (!reachable[l]) { continue; }
       const edges = this.textEdges(l);
       if (!edges) { continue; }
       for (let c = edges.left; c <= edges.right; c++) {
         if (this.terrain[l][c]) {
-          const dist = Math.abs(l - catLine) + Math.abs(c - Math.round(this.state.col));
+          const dist = Math.abs(l - catLine) + Math.abs(c - catCol);
           if (dist <= 3) { continue; }
-          if (!this.canReachPosition(l, c)) { continue; }
+          if (l !== catLine && getPath(l, c) === null) { continue; }
           positions.push({ line: l, col: c, dist });
         }
       }
     }
+    this.validFishPositionsCacheKey = cacheKey;
+    this.validFishPositionsCache = positions;
     return positions;
   }
 
   private spawnFish(): void {
-    const positions = this.getValidFishPositions();
+    const positions = [...this.getValidFishPositions()];
     if (positions.length === 0) { return; }
     positions.sort((a, b) => b.dist - a.dist);
     const farHalf = Math.max(1, Math.floor(positions.length * 0.5));
@@ -550,7 +601,7 @@ export class CatPhysics {
 
   private eatFish(): void {
     this.fishEaten++;
-    this.route = null;
+    this.clearMovementPlanState();
     this.callbacks?.onFishEaten(this.fishEaten);
     this.eatPhase = 0; // phase 0: eat with fish visible
     this.setState('eat');
@@ -587,9 +638,9 @@ export class CatPhysics {
       this.pathFailCount++;
       if (this.pathFailCount >= 3) {
         // Give up on unreachable fish
-        this.fish.active = false;
+        this.clearMovementPlanState();
+        this.clearFishTargetState();
         this.fishSpawnTimer = 0;
-        this.pathFailCount = 0;
         this.fishConsecutiveCount = 0;
       }
     }
@@ -628,10 +679,9 @@ export class CatPhysics {
     } else if (this.state.action !== 'eat') {
       this.fishChaseTicks++;
       if (this.fishChaseTicks >= this.config.fishChaseTimeout) {
-        this.fish.active = false;
+        this.clearMovementPlanState();
+        this.clearFishTargetState();
         this.fishSpawnTimer = 0;
-        this.route = null;
-        this.targetLine = -1;
         this.fishConsecutiveCount = 0;
         this.setState('idle');
       }
@@ -664,7 +714,8 @@ export class CatPhysics {
         if (this.state.ticksInState >= this.config.eatDuration) {
           if (this.eatPhase === 0) {
             // Phase 0 done → fish disappears, start phase 1 (second eat)
-            this.fish.active = false;
+            this.fish = { line: -1, col: -1, active: false };
+            this.fishChaseTicks = 0;
             this.eatPhase = 1;
             this.setState('eat');
           } else {
@@ -756,14 +807,12 @@ export class CatPhysics {
   reset(): void {
     this.setState('idle');
     this.state.line = Math.round(this.state.line);
-    this.fish.active = false;
-    this.fishSpawnTimer = 0;
-    this.route = null;
-    this.plannedLandingCol = -1;
-    this.fishConsecutiveCount = 0;
-    this.targetLine = -1;
     const edges = this.textEdges(this.state.line);
     if (edges) { this.state.col = edges.left; }
+    this.clearMovementPlanState();
+    this.clearFishTargetState();
+    this.fishSpawnTimer = 0;
+    this.fishConsecutiveCount = 0;
   }
 
   spawn(nearLine: number): void {
@@ -776,11 +825,10 @@ export class CatPhysics {
             this.state.line = candidate;
             this.state.col = edges.left;
             this.setState('idle');
+            this.clearMovementPlanState();
+            this.clearFishTargetState();
             // Fish spawns on the very first tick for an immediate intro
             this.fishSpawnTimer = this.config.quickFishDelay - 1;
-            this.fish.active = false;
-            this.pathFailCount = 0;
-            this.plannedLandingCol = -1;
             this.fishConsecutiveCount = 0;
             return;
           }
@@ -791,8 +839,9 @@ export class CatPhysics {
     this.state.line = 0;
     this.state.col = 0;
     this.setState('idle');
+    this.clearMovementPlanState();
+    this.clearFishTargetState();
     this.fishSpawnTimer = this.config.quickFishDelay - 1;
-    this.fish.active = false;
-    this.plannedLandingCol = -1;
+    this.fishConsecutiveCount = 0;
   }
 }

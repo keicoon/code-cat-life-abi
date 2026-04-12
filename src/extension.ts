@@ -19,6 +19,10 @@ let statusBarItem: vscode.StatusBarItem | null = null;
 let statusState = 'sleep';
 let lastTickAt = 0;
 
+function getTickMs(): number {
+  return Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
+}
+
 function readConfig(): ExtensionConfig {
   const cfg = vscode.workspace.getConfiguration('codeCatLifeAbi');
   const sleepTime = cfg.get<number>('sleepTime');
@@ -39,7 +43,7 @@ function applyConfig(): void {
   sprites.setColor(currentConfig.catColor);
 
   // Update physics config from user settings
-  const tickMs = Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
+  const tickMs = getTickMs();
   const quickFishDelay = Math.max(
     1,
     Math.round((DEFAULT_PHYSICS.quickFishDelay * DEFAULT_PHYSICS.tickMs) / tickMs),
@@ -291,7 +295,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
 function resetIdleTimer(): void {
   if (idleTimeout) { clearTimeout(idleTimeout); }
-  idleTimeout = setTimeout(() => spawnCat(), currentConfig.idleTimeout * 1000);
+  idleTimeout = setTimeout(() => {
+    idleTimeout = null;
+    spawnCat();
+  }, currentConfig.idleTimeout * 1000);
 }
 
 function getVisibleRange(editor: vscode.TextEditor): { start: number; end: number } {
@@ -312,14 +319,15 @@ function spawnCat(): void {
   const cursorLine = editor.selection.active.line;
   const spawnLine = (cursorLine >= start && cursorLine <= end) ? cursorLine : start;
   physics.spawn(spawnLine);
+  const state = physics.getState();
 
   if (!physics.canSpawnFishFromCurrentPosition()) {
     statusState = 'sleep';
     updateStatusBar();
-    log.info(`Cat spawn skipped at line ${physics.getState().line}: no reachable fish targets`);
+    log.info(`Cat spawn skipped at line ${state.line}: no reachable fish targets`);
     debugLog(
-      `spawn skipped visible=${start}-${end} cursor=${cursorLine} state={${formatState(physics.getState())}} ` +
-      `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, physics.getState())}`,
+      `spawn skipped visible=${start}-${end} cursor=${cursorLine} state={${formatState(state)}} ` +
+      `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, state)}`,
     );
     return;
   }
@@ -327,10 +335,9 @@ function spawnCat(): void {
   catActive = true;
   lastFootprintCol = -999;
   lastTickAt = 0;
-  statusState = formatActionLabel(physics.getState().action);
+  statusState = formatActionLabel(state.action);
   updateStatusBar();
 
-  const state = physics.getState();
   log.info(`Cat spawned at line ${state.line}, col ${state.col} (cursor was at line ${cursorLine})`);
   debugLog(
     `spawn visible=${start}-${end} cursor=${cursorLine} state={${formatState(state)}} ` +
@@ -338,7 +345,7 @@ function spawnCat(): void {
   );
 
   // Start tick loop (speed-adjusted tick interval)
-  const tickMs = Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
+  const tickMs = getTickMs();
   if (tickInterval) { clearInterval(tickInterval); }
   tickInterval = setInterval(() => tickCat(), tickMs);
 }
@@ -349,7 +356,7 @@ function tickCat(): void {
 
   try {
     const prev = physics.getState();
-    const tickMs = Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
+    const tickMs = getTickMs();
     const now = Date.now();
     if (debugEnabled() && lastTickAt > 0) {
       const elapsed = now - lastTickAt;
@@ -421,6 +428,7 @@ function despawnCat(reason = 'unknown'): void {
     );
   }
   catActive = false;
+  isRendering = false;
   lastTickAt = 0;
   statusState = currentConfig.enabled ? 'sleep' : 'disabled';
   updateStatusBar();
@@ -435,7 +443,7 @@ function despawnCat(reason = 'unknown'): void {
 
 export function deactivate() {
   despawnCat('deactivate');
-  if (idleTimeout) { clearTimeout(idleTimeout); }
+  if (idleTimeout) { clearTimeout(idleTimeout); idleTimeout = null; }
   log?.info('Code Cat Life Abi deactivated');
   log?.dispose();
 }

@@ -402,6 +402,52 @@ function testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases(): void {
   );
 }
 
+function testResetClearsTransientMovementAndFishState(): void {
+  console.log('\n▸ reset clears transient movement and fish state');
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
+  physics.updateTerrain(TERRAIN_UNIFORM);
+  physics.spawn(4);
+
+  const internal = physics as any;
+  internal.state.line = 2.6;
+  internal.state.col = 7.4;
+  internal.state.direction = 'left';
+  internal.route = [{ line: 1, col: 6, landingCol: 8, action: 'jump' }];
+  internal.routeIdx = 1;
+  internal.routeGoalCol = 12;
+  internal.targetCol = 8;
+  internal.plannedLandingCol = 8;
+  internal.targetLine = 1;
+  internal.pathFailCount = 2;
+  internal.jumpStartLine = 4;
+  internal.jumpStartCol = 3;
+  internal.fish = { line: 1, col: 8, active: true };
+  internal.fishSpawnTimer = 42;
+  internal.fishChaseTicks = 13;
+  internal.eatPhase = 1;
+  internal.fishConsecutiveCount = 3;
+
+  physics.reset();
+
+  const state = physics.getState();
+  const fish = physics.getFish();
+  const snapshot = physics.getDebugSnapshot();
+
+  assert(state.action === 'idle', 'Reset returns the cat to idle');
+  assert(state.line === 3, 'Reset rounds the current line before restoring text anchoring');
+  assert(state.col === 0, 'Reset snaps to the left text edge on the rounded line');
+  assert(!fish.active && fish.line === -1 && fish.col === -1, 'Reset clears fish target state');
+  assert(snapshot.targetLine === -1, 'Reset clears target line');
+  assert(snapshot.targetCol === 0, 'Reset clears target column to the current anchor');
+  assert(snapshot.plannedLandingCol === -1, 'Reset clears planned landing column');
+  assert(snapshot.routeIdx === 0 && snapshot.routeLength === 0, 'Reset clears the route state');
+  assert(snapshot.routeGoalCol === 0, 'Reset clears the route goal column');
+  assert(snapshot.jumpStartLine === 3 && snapshot.jumpStartCol === 0, 'Reset realigns jump start state');
+  assert(snapshot.fishSpawnTimer === 0 && snapshot.fishChaseTicks === 0, 'Reset clears fish timers');
+  assert(internal.pathFailCount === 0, 'Reset clears path failure count');
+  assert(internal.fishConsecutiveCount === 0, 'Reset clears fish session progress');
+}
+
 function testLandingPauseSeparatesConsecutiveVerticalMoves(): void {
   console.log('\n▸ landing pause separates consecutive vertical moves');
   const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
@@ -515,6 +561,7 @@ testVisibleRangeConstraint();
 testSameLineRunTreatsInteriorSpacesAsTraversable();
 testFishSpawnCandidatesRequireExactReachability();
 testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases();
+testResetClearsTransientMovementAndFishState();
 
 console.log('\n═══════════════════════════════════════════');
 console.log(`  Results: ${passed} passed, ${failed} failed`);
