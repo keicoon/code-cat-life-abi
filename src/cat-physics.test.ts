@@ -1,5 +1,6 @@
 import { CatPhysics } from './cat-physics';
 import { CatState, DEFAULT_PHYSICS, Direction, RouteStep } from './types';
+import { selectActiveVisibleRange } from './visible-range';
 
 function textEdges(line: string): { left: number; right: number } | null {
   let left = -1;
@@ -341,27 +342,29 @@ function testVisibleRangeConstraint(): void {
   }
 }
 
-function testDisjointVisibleRangesExcludeHiddenLinesFromFishSpawns(): void {
-  console.log('\n▸ disjoint visible ranges exclude hidden gap lines from fish spawns');
+function testActiveVisibleRangeSelectionSkipsHiddenGapLines(): void {
+  console.log('\n▸ active visible range selection skips hidden gap lines');
   const terrain = Array(7).fill('xxxxxxxxxx').join('\n');
-  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
-  physics.updateTerrain(terrain, [
+  const selected = selectActiveVisibleRange([
     { start: 0, end: 2 },
     { start: 4, end: 6 },
-  ]);
-  physics.spawn(0);
+  ], 5, 7);
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
+  physics.updateTerrain(terrain, selected.start, selected.end);
+  physics.spawn(5);
 
   const internal = physics as any;
   const positions = internal.getValidFishPositions() as Array<{ line: number; col: number; dist: number }>;
 
+  assert(selected.start === 4 && selected.end === 6, 'Visible segment containing the spawn line is selected');
   assert(positions.length > 0, 'Disjoint visible ranges still produce fish candidates');
   assert(
     positions.some(pos => pos.line >= 4 && pos.line <= 6),
-    'Fish candidates can still appear in the second visible range',
+    'Fish candidates appear inside the selected contiguous visible segment',
   );
   assert(
-    !positions.some(pos => pos.line === 3),
-    'Fish candidates never appear on hidden gap lines between visible ranges',
+    !positions.some(pos => pos.line <= 3),
+    'Fish candidates exclude lines outside the selected contiguous segment',
   );
 }
 
@@ -582,7 +585,7 @@ testLandingPauseSeparatesConsecutiveVerticalMoves();
 testPostEatHoldsLastPoseUntilRespawn();
 testSessionEndSleepsUntilRespawn();
 testVisibleRangeConstraint();
-testDisjointVisibleRangesExcludeHiddenLinesFromFishSpawns();
+testActiveVisibleRangeSelectionSkipsHiddenGapLines();
 testSameLineRunTreatsInteriorSpacesAsTraversable();
 testFishSpawnCandidatesRequireExactReachability();
 testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases();

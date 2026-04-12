@@ -4,6 +4,7 @@ import { CatPhysics } from './cat-physics';
 import { DecorationRenderer } from './decoration-renderer';
 import { SpriteManager } from './sprite-manager';
 import { CatState, DEFAULT_PHYSICS, ExtensionConfig, PhysicsDebugSnapshot } from './types';
+import { formatVisibleRanges, selectActiveVisibleRange, VisibleLineRange } from './visible-range';
 
 let physics: CatPhysics;
 let renderer: DecorationRenderer;
@@ -301,16 +302,12 @@ function resetIdleTimer(): void {
   }, currentConfig.idleTimeout * 1000);
 }
 
-function getVisibleRanges(editor: vscode.TextEditor): Array<{ start: number; end: number }> {
+function getVisibleRanges(editor: vscode.TextEditor): VisibleLineRange[] {
   const ranges = editor.visibleRanges;
   if (ranges.length === 0) {
     return [{ start: 0, end: editor.document.lineCount - 1 }];
   }
   return ranges.map(range => ({ start: range.start.line, end: range.end.line }));
-}
-
-function isLineInVisibleRanges(line: number, visibleRanges: Array<{ start: number; end: number }>): boolean {
-  return visibleRanges.some(range => line >= range.start && line <= range.end);
 }
 
 function spawnCat(): void {
@@ -319,13 +316,15 @@ function spawnCat(): void {
 
   const text = editor.document.getText();
   const visibleRanges = getVisibleRanges(editor);
-  physics.updateTerrain(text, visibleRanges);
-  const visibleLabel = visibleRanges.map(range => `${range.start}-${range.end}`).join(',');
+  const cursorLine = editor.selection.active.line;
+  const activeVisibleRange = selectActiveVisibleRange(visibleRanges, cursorLine, editor.document.lineCount);
+  physics.updateTerrain(text, activeVisibleRange.start, activeVisibleRange.end);
+  const visibleLabel = formatVisibleRanges(visibleRanges);
 
   // Spawn near cursor if visible, otherwise top-left of visible area
-  const cursorLine = editor.selection.active.line;
-  const start = visibleRanges[0].start;
-  const spawnLine = isLineInVisibleRanges(cursorLine, visibleRanges) ? cursorLine : start;
+  const spawnLine = cursorLine >= activeVisibleRange.start && cursorLine <= activeVisibleRange.end
+    ? cursorLine
+    : activeVisibleRange.start;
   physics.spawn(spawnLine);
   const state = physics.getState();
 

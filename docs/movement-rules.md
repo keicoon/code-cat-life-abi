@@ -70,12 +70,12 @@ maxH = 2 × lineDelta
 
 ## 규칙 4: 보이는 영역 제약 (Visible Range)
 
-> 고양이와 생선은 에디터의 **실제 visible ranges** 안에서만 동작한다.
+> 고양이와 생선은 스폰 라인이 속한 **연속 visible segment 하나** 안에서만 동작한다.
 
-- 현재 구현은 단일 `start~end` 구간이 아니라 `TextEditor.visibleRanges`의 **모든 실제 구간**을 그대로 반영한다
-- 여러 visible range 사이의 숨겨진 gap line은 보이지 않는 줄로 처리한다
-- 보이지 않는 줄은 `isEmptyLine() = true`로 처리
-- 생선도 실제로 보이는 줄에서만 생성된다
+- extension은 `TextEditor.visibleRanges` 전체를 그대로 쓰지 않고, 현재 cursor/spawn line이 속한 **하나의 연속 구간**만 선택한다
+- 따라서 folded/hidden gap을 사이에 둔 다른 visible 구간은 이번 세션의 이동/생성 범위에서 제외된다
+- 선택된 구간 밖 라인은 `isEmptyLine() = true`로 처리한다
+- 생선도 선택된 연속 visible segment 안에서만 생성된다
 
 ---
 
@@ -125,7 +125,7 @@ maxH = 2 × lineDelta
 | same-X 임시 diagonal 후 goal 정렬 | `testAlignedGoalRouteUsesTemporaryDiagonalThenSettles` |
 | multi-line scaled stride / zero fallback | `testMultiLineVerticalStrideScalesWithLineDistance`, `testMultiLineVerticalStrideFallsBackToZeroWhenLandingIsImpossible` |
 | landing pause | `testLandingPauseSeparatesConsecutiveVerticalMoves` |
-| visible range 제약 | `testVisibleRangeConstraint`, `testDisjointVisibleRangesExcludeHiddenLinesFromFishSpawns` |
+| visible range 제약 | `testVisibleRangeConstraint`, `testActiveVisibleRangeSelectionSkipsHiddenGapLines` |
 | exact fish reachability spawn | `testFishSpawnCandidatesRequireExactReachability` |
 | no-fish-candidate spawn skip 전제 | `testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases` |
 | post-eat / session sleep | `testPostEatHoldsLastPoseUntilRespawn`, `testSessionEndSleepsUntilRespawn` |

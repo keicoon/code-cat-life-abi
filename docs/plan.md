@@ -25,8 +25,8 @@ src/
 
 ### Visibility
 
-- 고양이와 생선은 `TextEditor.visibleRanges`에 포함된 줄에서만 동작한다.
-- visible range 사이의 숨겨진 gap line은 보이지 않는 줄로 처리한다.
+- extension은 `TextEditor.visibleRanges` 중에서 현재 cursor/spawn line이 속한 하나의 연속 구간만 선택한다.
+- 따라서 folded/hidden gap을 사이에 둔 다른 visible 구간은 현재 세션의 이동 범위에서 제외된다.
 - 현재 스폰 위치에서 유효한 생선 후보가 전혀 없으면 고양이는 에디터에 나타나지 않고 status bar만 sleep 상태로 남는다.
 
 ### Terrain Model
@@ -56,7 +56,7 @@ src/
   - 텍스트 위 유지와 이동 연속성
   - same-y 내부 공백 이동
   - vertical stride 규칙
-  - visible range 제약과 disjoint visible range gap 배제
+  - visible segment 선택과 hidden gap 배제
   - exact fish reachability spawn
   - no-fish-candidate spawn skip 전제
   - reset 시 transient state 정리
