@@ -39,8 +39,14 @@ interface FishCandidate {
   dist: number;
 }
 
+interface LineInfo {
+  edges: TextEdge | null;
+  whitespaceOnly: boolean;
+}
+
 export class CatPhysics {
   private lines: string[] = [];
+  private lineInfos: LineInfo[] = [];
   private terrain: boolean[][] = [];
   private visibleStart = 0;
   private visibleEnd = 0;
@@ -81,6 +87,7 @@ export class CatPhysics {
 
   updateTerrain(text: string, visibleStart?: number, visibleEnd?: number): void {
     this.lines = text.split('\n');
+    this.lineInfos = [];
     this.terrain = [];
     this.terrainVersion++;
     this.invalidateFishCandidateCache();
@@ -94,27 +101,55 @@ export class CatPhysics {
     for (let l = 0; l < this.lines.length; l++) {
       const line = this.lines[l];
       const inView = l >= vStart && l <= vEnd;
+      this.lineInfos[l] = {
+        edges: this.computeTextEdges(line),
+        whitespaceOnly: line.trim().length === 0,
+      };
       this.terrain[l] = Array.from(line, char => inView && char !== ' ');
     }
     this.validatePosition();
   }
 
+  private computeTextEdges(line: string): TextEdge | null {
+    let left = -1;
+    let right = -1;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] !== ' ') {
+        if (left === -1) { left = i; }
+        right = i;
+      }
+    }
+    return left === -1 ? null : { left, right };
+  }
+
+  private findNearestTextLine(nearLine: number, preferBelowFirst: boolean): number | null {
+    for (let d = 0; d < this.lines.length; d++) {
+      const candidates = d === 0
+        ? [nearLine]
+        : preferBelowFirst
+          ? [nearLine + d, nearLine - d]
+          : [nearLine - d, nearLine + d];
+      for (const candidate of candidates) {
+        if (candidate >= 0 && candidate < this.lines.length && !this.isEmptyLine(candidate)) {
+          return candidate;
+        }
+      }
+    }
+    return null;
+  }
+
+  private moveToLineStart(line: number): void {
+    const edges = this.textEdges(line);
+    if (!edges) { return; }
+    this.state.line = line;
+    this.state.col = edges.left;
+  }
+
   private validatePosition(): void {
     const line = Math.round(this.state.line);
     if (line >= this.lines.length || this.isEmptyLine(line)) {
-      // Find nearest non-empty line
-      for (let d = 0; d < this.lines.length; d++) {
-        for (const dir of [line - d, line + d]) {
-          if (dir >= 0 && dir < this.lines.length && !this.isEmptyLine(dir)) {
-            const edges = this.textEdges(dir);
-            if (edges) {
-              this.state.line = dir;
-              this.state.col = edges.left;
-              return;
-            }
-          }
-        }
-      }
+      const nearestLine = this.findNearestTextLine(line, false);
+      if (nearestLine !== null) { this.moveToLineStart(nearestLine); }
     }
   }
 
@@ -126,18 +161,12 @@ export class CatPhysics {
 
   private isEmptyLine(line: number): boolean {
     if (line < this.visibleStart || line > this.visibleEnd) { return true; }
-    return line >= 0 && line < this.lines.length && this.lines[line].trim().length === 0;
+    return line < 0 || line >= this.lineInfos.length || this.lineInfos[line].whitespaceOnly;
   }
 
   private textEdges(line: number): TextEdge | null {
-    if (line < 0 || line >= this.lines.length) { return null; }
-    const s = this.lines[line];
-    let left = -1, right = -1;
-    for (let i = 0; i < s.length; i++) {
-      if (s[i] !== ' ') { if (left === -1) { left = i; } right = i; }
-    }
-    if (left === -1) { return null; }
-    return { left, right };
+    if (line < 0 || line >= this.lineInfos.length) { return null; }
+    return this.lineInfos[line].edges;
   }
 
   private clampToTextEdges(line: number, col: number): number {
@@ -543,6 +572,17 @@ export class CatPhysics {
     this.eatPhase = 0;
   }
 
+  private faceTowardCol(col: number): void {
+    if (col > this.state.col) { this.state.direction = 'right'; }
+    else if (col < this.state.col) { this.state.direction = 'left'; }
+  }
+
+  private enterSurpriseForFish(): void {
+    if (!this.fish.active) { return; }
+    this.faceTowardCol(this.fish.col);
+    this.setState('surprise');
+  }
+
   // ---- Fish ----
 
   private getValidFishPositions(): FishCandidate[] {
@@ -670,10 +710,7 @@ export class CatPhysics {
           (this.state.action === 'idle' || this.state.action === 'post_eat' || this.state.action === 'sleep') &&
           this.fish.active
         ) {
-          // Face toward the fish
-          if (this.fish.col > this.state.col) { this.state.direction = 'right'; }
-          else if (this.fish.col < this.state.col) { this.state.direction = 'left'; }
-          this.setState('surprise');
+          this.enterSurpriseForFish();
         }
       }
     } else if (this.state.action !== 'eat') {
@@ -693,9 +730,7 @@ export class CatPhysics {
       case 'idle':
       case 'sleep':
         if (this.fish.active && this.state.ticksInState > 10) {
-          if (this.fish.col > this.state.col) { this.state.direction = 'right'; }
-          else if (this.fish.col < this.state.col) { this.state.direction = 'left'; }
-          this.setState('surprise');
+          this.enterSurpriseForFish();
         }
         break;
 
@@ -807,8 +842,7 @@ export class CatPhysics {
   reset(): void {
     this.setState('idle');
     this.state.line = Math.round(this.state.line);
-    const edges = this.textEdges(this.state.line);
-    if (edges) { this.state.col = edges.left; }
+    this.moveToLineStart(this.state.line);
     this.clearMovementPlanState();
     this.clearFishTargetState();
     this.fishSpawnTimer = 0;
@@ -816,25 +850,18 @@ export class CatPhysics {
   }
 
   spawn(nearLine: number): void {
-    // Find the nearest non-empty line to spawn on
-    for (let d = 0; d < this.lines.length; d++) {
-      for (const candidate of [nearLine + d, nearLine - d]) {
-        if (candidate >= 0 && candidate < this.lines.length && !this.isEmptyLine(candidate)) {
-          const edges = this.textEdges(candidate);
-          if (edges) {
-            this.state.line = candidate;
-            this.state.col = edges.left;
-            this.setState('idle');
-            this.clearMovementPlanState();
-            this.clearFishTargetState();
-            // Fish spawns on the very first tick for an immediate intro
-            this.fishSpawnTimer = this.config.quickFishDelay - 1;
-            this.fishConsecutiveCount = 0;
-            return;
-          }
-        }
-      }
+    const nearestLine = this.findNearestTextLine(nearLine, true);
+    if (nearestLine !== null) {
+      this.moveToLineStart(nearestLine);
+      this.setState('idle');
+      this.clearMovementPlanState();
+      this.clearFishTargetState();
+      // Fish spawns on the very first tick for an immediate intro
+      this.fishSpawnTimer = this.config.quickFishDelay - 1;
+      this.fishConsecutiveCount = 0;
+      return;
     }
+
     // No valid line found — stay at 0,0 in idle
     this.state.line = 0;
     this.state.col = 0;
