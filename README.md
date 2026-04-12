@@ -55,7 +55,6 @@ npm run watch
 
 - 이동 규칙 문서: [docs/movement-rules.md](docs/movement-rules.md)
 - 배포 가이드: [docs/publishing.md](docs/publishing.md)
-- 알려진 이슈 및 회귀 정리: [docs/known-issues.md](docs/known-issues.md)
 
 ## Packaging
 
