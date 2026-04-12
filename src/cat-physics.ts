@@ -735,6 +735,9 @@ export class CatPhysics {
   getState(): CatState { return { ...this.state }; }
   getFish(): FishState { return { ...this.fish }; }
   getFishEaten(): number { return this.fishEaten; }
+  canSpawnFishFromCurrentPosition(): boolean {
+    return this.getValidFishPositions().length > 0;
+  }
   getDebugSnapshot(): PhysicsDebugSnapshot {
     return {
       targetLine: this.targetLine,

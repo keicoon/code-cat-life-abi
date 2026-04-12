@@ -313,6 +313,17 @@ function spawnCat(): void {
   const spawnLine = (cursorLine >= start && cursorLine <= end) ? cursorLine : start;
   physics.spawn(spawnLine);
 
+  if (!physics.canSpawnFishFromCurrentPosition()) {
+    statusState = 'sleep';
+    updateStatusBar();
+    log.info(`Cat spawn skipped at line ${physics.getState().line}: no reachable fish targets`);
+    debugLog(
+      `spawn skipped visible=${start}-${end} cursor=${cursorLine} state={${formatState(physics.getState())}} ` +
+      `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, physics.getState())}`,
+    );
+    return;
+  }
+
   catActive = true;
   lastFootprintCol = -999;
   lastTickAt = 0;

@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import { CatPhysics } from './cat-physics';
 import { CatState, DEFAULT_PHYSICS, Direction, RouteStep } from './types';
 
@@ -79,7 +78,35 @@ const TERRAIN_FORCED_TWO_LINE_JUMP_NARROW = [
   'xxxxxxxxxxxxxxxxxxxx',
 ].join('\n');
 
-const TERRAIN_FAIL_DEMO = fs.readFileSync('./demo/fail.ts', 'utf8');
+const TERRAIN_FAIL_REPRO = [
+  '/**',
+  ' * VS Code extension entry point for Code Type Animal Sound.',
+  ' */',
+  '',
+  "import * as vscode from 'vscode';",
+  "import { AudioWebviewProvider } from './audio/audioWebviewProvider';",
+  "import { AudioRenderer } from './audio/audioRenderer';",
+  "import { VscodeInputMonitor } from './vscodeInputMonitor';",
+  "import { TypingAudioService } from './service/typingAudioService';",
+  '',
+  'let service: TypingAudioService | undefined;',
+  'let audioProvider: AudioWebviewProvider | undefined;',
+  'let statusBarItem: vscode.StatusBarItem | undefined;',
+  '',
+  'function getConfig() {',
+  "  const config = vscode.workspace.getConfiguration('codeTypeAnimalSound');",
+  '  return {',
+  "    enabled: config.get<boolean>('enabled', true),",
+  "    volume: config.get<number>('volume', 0.7),",
+  "    koreanVoice: config.get<string>('koreanVoice', 'f1'),",
+  "    englishVoice: config.get<string>('englishVoice', 'f1'),",
+  '  };',
+  '}',
+  '',
+  'function updateStatusBar(listening: boolean): void {',
+].join('\n');
+
+const TERRAIN_NO_FISH_SPAWN = 'xxx';
 
 function runTicks(
   physics: CatPhysics,
@@ -317,7 +344,7 @@ function testVisibleRangeConstraint(): void {
 function testFishSpawnCandidatesRequireExactReachability(): void {
   console.log('\n▸ fish spawn candidates require exact reachability');
   const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
-  physics.updateTerrain(TERRAIN_FAIL_DEMO);
+  physics.updateTerrain(TERRAIN_FAIL_REPRO);
   physics.spawn(1);
 
   const internal = physics as any;
@@ -341,6 +368,18 @@ function testFishSpawnCandidatesRequireExactReachability(): void {
       `Fish candidate (${pos.line}, ${pos.col}) is exactly reachable`,
     );
   }
+}
+
+function testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases(): void {
+  console.log('\n▸ spawn detection rejects terrains with no fish candidates');
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
+  physics.updateTerrain(TERRAIN_NO_FISH_SPAWN);
+  physics.spawn(0);
+
+  assert(
+    !physics.canSpawnFishFromCurrentPosition(),
+    'Single short line offers no valid fish spawn candidates',
+  );
 }
 
 function testLandingPauseSeparatesConsecutiveVerticalMoves(): void {
@@ -454,6 +493,7 @@ testPostEatHoldsLastPoseUntilRespawn();
 testSessionEndSleepsUntilRespawn();
 testVisibleRangeConstraint();
 testFishSpawnCandidatesRequireExactReachability();
+testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases();
 
 console.log('\n═══════════════════════════════════════════');
 console.log(`  Results: ${passed} passed, ${failed} failed`);
