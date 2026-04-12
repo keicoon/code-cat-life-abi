@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { CatPhysics } from './cat-physics';
 import { CatState, DEFAULT_PHYSICS, Direction, RouteStep } from './types';
 
@@ -77,6 +78,8 @@ const TERRAIN_FORCED_TWO_LINE_JUMP_NARROW = [
   '',
   'xxxxxxxxxxxxxxxxxxxx',
 ].join('\n');
+
+const TERRAIN_FAIL_DEMO = fs.readFileSync('./demo/fail.ts', 'utf8');
 
 function runTicks(
   physics: CatPhysics,
@@ -311,6 +314,35 @@ function testVisibleRangeConstraint(): void {
   }
 }
 
+function testFishSpawnCandidatesRequireExactReachability(): void {
+  console.log('\n▸ fish spawn candidates require exact reachability');
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
+  physics.updateTerrain(TERRAIN_FAIL_DEMO);
+  physics.spawn(1);
+
+  const internal = physics as any;
+  const positions = internal.getValidFishPositions() as Array<{ line: number; col: number; dist: number }>;
+  const catLine = Math.round(physics.getState().line);
+
+  assert(positions.length > 0, 'Fail demo still produces fish spawn candidates');
+  assert(
+    positions.some(pos => pos.line === 24 && pos.col === 4),
+    'Known reachable candidate on fail demo remains eligible',
+  );
+  assert(
+    !positions.some(pos => pos.line === 24 && pos.col === 24),
+    'Known unreachable candidate on fail demo is excluded',
+  );
+
+  for (const pos of positions) {
+    const exactReachable = pos.line === catLine || internal.findPath(catLine, pos.line, pos.col) !== null;
+    assert(
+      exactReachable,
+      `Fish candidate (${pos.line}, ${pos.col}) is exactly reachable`,
+    );
+  }
+}
+
 function testLandingPauseSeparatesConsecutiveVerticalMoves(): void {
   console.log('\n▸ landing pause separates consecutive vertical moves');
   const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
@@ -421,6 +453,7 @@ testLandingPauseSeparatesConsecutiveVerticalMoves();
 testPostEatHoldsLastPoseUntilRespawn();
 testSessionEndSleepsUntilRespawn();
 testVisibleRangeConstraint();
+testFishSpawnCandidatesRequireExactReachability();
 
 console.log('\n═══════════════════════════════════════════');
 console.log(`  Results: ${passed} passed, ${failed} failed`);

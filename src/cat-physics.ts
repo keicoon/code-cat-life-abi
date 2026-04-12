@@ -503,6 +503,12 @@ export class CatPhysics {
     return true;
   }
 
+  private canReachPosition(goalLine: number, goalCol: number): boolean {
+    const currentLine = Math.round(this.state.line);
+    if (currentLine === goalLine) { return true; }
+    return this.findPath(currentLine, goalLine, goalCol) !== null;
+  }
+
   // ---- Fish ----
 
   private getValidFishPositions(): Array<{ line: number; col: number; dist: number }> {
@@ -522,7 +528,9 @@ export class CatPhysics {
       for (let c = edges.left; c <= edges.right; c++) {
         if (this.terrain[l][c]) {
           const dist = Math.abs(l - catLine) + Math.abs(c - Math.round(this.state.col));
-          if (dist > 3) { positions.push({ line: l, col: c, dist }); }
+          if (dist <= 3) { continue; }
+          if (!this.canReachPosition(l, c)) { continue; }
+          positions.push({ line: l, col: c, dist });
         }
       }
     }
