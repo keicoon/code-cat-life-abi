@@ -10,6 +10,8 @@
 > 고양이는 **항상** 텍스트가 존재하는 위치에만 있어야 한다.
 
 - `state.col`은 해당 `state.line`의 `textEdges(line).left` ~ `textEdges(line).right` 범위 내
+- 현재 구현은 한 줄 내부를 **segment 단위**로 나누지 않고, 첫 non-space ~ 마지막 non-space 전체를 같은 수평 지형으로 본다
+- 따라서 same-y 이동에서는 줄 내부 공백(예: `"abc   def"`)을 별도 gap으로 취급하지 않고 그대로 run 할 수 있다
 - **빈 라인**(공백만 있는 라인)에는 착지 불가
 - jump/fall **착지 시점**: `targetCol`은 대상 라인 위의 유효한 stride 착지점이어야 한다
 - run 시: `targetCol`은 대상 라인의 텍스트 범위 내
@@ -83,6 +85,7 @@ maxH = 2 × lineDelta
 - 큰 수평 이동이 필요하면 해당 라인에서 **run**으로 이동 후 jump/fall
 - 생선은 실제 목표 `(line, col)`까지 경로가 성립하는 위치에만 생성
 - 단순히 같은 line이 reachable한 것만으로는 충분하지 않다
+- 현재 위치에서 유효한 생선 후보가 하나도 없으면 고양이는 아예 스폰되지 않는다
 - 이미 스폰된 생선이 3회 연속 경로 실패하면 포기
 
 ---
@@ -104,3 +107,23 @@ maxH = 2 × lineDelta
 2. 이동 연속성 (adaptive speed)
 3. 🟡 Per-line 수평 제한 (최선 노력)
 4. 보이는 영역 제약
+
+---
+
+## 테스트 반영
+
+아래 테스트들이 현재 규칙을 직접 보호한다.
+
+| 규칙 | 테스트 |
+|------|--------|
+| 텍스트 위 유지 / 연속성 | `testMovementStaysOnTextAndContinuous` |
+| same-y 내부 공백 run 허용 | `testSameLineRunTreatsInteriorSpacesAsTraversable` |
+| vertical stride = `0` 또는 `2 × lineDelta` | `testVerticalLandingsUseOnlyZeroOrFixedStride` |
+| goal 방향 짧은 diagonal 접근 | `testGoalDirectedRouteUsesProgressiveDiagonalStride` |
+| same-X 임시 diagonal 후 goal 정렬 | `testAlignedGoalRouteUsesTemporaryDiagonalThenSettles` |
+| multi-line scaled stride / zero fallback | `testMultiLineVerticalStrideScalesWithLineDistance`, `testMultiLineVerticalStrideFallsBackToZeroWhenLandingIsImpossible` |
+| landing pause | `testLandingPauseSeparatesConsecutiveVerticalMoves` |
+| visible range 제약 | `testVisibleRangeConstraint` |
+| exact fish reachability spawn | `testFishSpawnCandidatesRequireExactReachability` |
+| no-fish-candidate spawn skip 전제 | `testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases` |
+| post-eat / session sleep | `testPostEatHoldsLastPoseUntilRespawn`, `testSessionEndSleepsUntilRespawn` |

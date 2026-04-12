@@ -341,6 +341,26 @@ function testVisibleRangeConstraint(): void {
   }
 }
 
+function testSameLineRunTreatsInteriorSpacesAsTraversable(): void {
+  console.log('\n▸ same-line movement crosses interior spaces within text edges');
+  const terrain = 'abc   def';
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
+  physics.updateTerrain(terrain);
+  physics.spawn(0);
+
+  const internal = physics as any;
+  internal.fishSpawnTimer = 0;
+  assert(internal.planRoute(0, 8), 'Route plans across a same-line interior gap');
+
+  let state = physics.getState();
+  for (let i = 0; i < 40 && (state.action !== 'idle' || Math.round(state.col) !== 8); i++) {
+    state = physics.tick();
+  }
+
+  assert(Math.round(state.line) === 0, 'Same-line traversal stays on the original line');
+  assert(Math.round(state.col) === 8, 'Same-line traversal reaches the goal column past spaces');
+}
+
 function testFishSpawnCandidatesRequireExactReachability(): void {
   console.log('\n▸ fish spawn candidates require exact reachability');
   const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
@@ -492,6 +512,7 @@ testLandingPauseSeparatesConsecutiveVerticalMoves();
 testPostEatHoldsLastPoseUntilRespawn();
 testSessionEndSleepsUntilRespawn();
 testVisibleRangeConstraint();
+testSameLineRunTreatsInteriorSpacesAsTraversable();
 testFishSpawnCandidatesRequireExactReachability();
 testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases();
 
