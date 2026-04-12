@@ -39,6 +39,11 @@ interface FishCandidate {
   dist: number;
 }
 
+interface VisibleLineRange {
+  start: number;
+  end: number;
+}
+
 interface LineInfo {
   edges: TextEdge | null;
   whitespaceOnly: boolean;
@@ -50,6 +55,8 @@ export class CatPhysics {
   private terrain: boolean[][] = [];
   private visibleStart = 0;
   private visibleEnd = 0;
+  private visibleLineMask: boolean[] = [];
+  private visibleRangeKey = 'all';
   private terrainVersion = 0;
 
   private state: CatState = {
@@ -85,22 +92,33 @@ export class CatPhysics {
 
   // ---- Terrain ----
 
-  updateTerrain(text: string, visibleStart?: number, visibleEnd?: number): void {
+  updateTerrain(text: string, visibleRanges?: VisibleLineRange[]): void;
+  updateTerrain(text: string, visibleStart?: number, visibleEnd?: number): void;
+  updateTerrain(
+    text: string,
+    visibleStartOrRanges?: number | VisibleLineRange[],
+    visibleEnd?: number,
+  ): void {
     this.lines = text.split('\n');
     this.lineInfos = [];
     this.terrain = [];
     this.terrainVersion++;
     this.invalidateFishCandidateCache();
 
-    // Constrain to visible range if provided
-    const vStart = visibleStart ?? 0;
-    const vEnd = visibleEnd ?? this.lines.length - 1;
-    this.visibleStart = vStart;
-    this.visibleEnd = vEnd;
+    const ranges = this.normalizeVisibleRanges(visibleStartOrRanges, visibleEnd);
+    this.visibleLineMask = Array(this.lines.length).fill(false);
+    for (const range of ranges) {
+      for (let line = range.start; line <= range.end; line++) {
+        this.visibleLineMask[line] = true;
+      }
+    }
+    this.visibleStart = ranges[0]?.start ?? 0;
+    this.visibleEnd = ranges[ranges.length - 1]?.end ?? (this.lines.length - 1);
+    this.visibleRangeKey = ranges.map(range => `${range.start}-${range.end}`).join('|');
 
     for (let l = 0; l < this.lines.length; l++) {
       const line = this.lines[l];
-      const inView = l >= vStart && l <= vEnd;
+      const inView = this.visibleLineMask[l] ?? false;
       this.lineInfos[l] = {
         edges: this.computeTextEdges(line),
         whitespaceOnly: line.trim().length === 0,
@@ -108,6 +126,26 @@ export class CatPhysics {
       this.terrain[l] = Array.from(line, char => inView && char !== ' ');
     }
     this.validatePosition();
+  }
+
+  private normalizeVisibleRanges(
+    visibleStartOrRanges?: number | VisibleLineRange[],
+    visibleEnd?: number,
+  ): VisibleLineRange[] {
+    const maxLine = Math.max(0, this.lines.length - 1);
+    if (Array.isArray(visibleStartOrRanges)) {
+      return visibleStartOrRanges
+        .map(range => ({
+          start: Math.max(0, Math.min(maxLine, range.start)),
+          end: Math.max(0, Math.min(maxLine, range.end)),
+        }))
+        .filter(range => range.start <= range.end)
+        .sort((a, b) => a.start - b.start);
+    }
+
+    const start = Math.max(0, Math.min(maxLine, visibleStartOrRanges ?? 0));
+    const end = Math.max(start, Math.min(maxLine, visibleEnd ?? maxLine));
+    return [{ start, end }];
   }
 
   private computeTextEdges(line: string): TextEdge | null {
@@ -160,7 +198,7 @@ export class CatPhysics {
   }
 
   private isEmptyLine(line: number): boolean {
-    if (line < this.visibleStart || line > this.visibleEnd) { return true; }
+    if (!this.visibleLineMask[line]) { return true; }
     return line < 0 || line >= this.lineInfos.length || this.lineInfos[line].whitespaceOnly;
   }
 
@@ -548,8 +586,7 @@ export class CatPhysics {
       Math.round(this.state.line),
       Math.round(this.state.col),
       this.state.direction,
-      this.visibleStart,
-      this.visibleEnd,
+      this.visibleRangeKey,
     ].join(':');
   }
 
@@ -606,7 +643,7 @@ export class CatPhysics {
     };
 
     // Only consider lines within visible range
-    for (let l = this.visibleStart; l <= this.visibleEnd; l++) {
+    for (let l = 0; l < this.lines.length; l++) {
       if (this.isEmptyLine(l)) { continue; }
       if (reachable[l] === undefined) {
         reachable[l] = (l === catLine) || (getPath(l) !== null);

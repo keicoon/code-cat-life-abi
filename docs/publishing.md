@@ -68,7 +68,7 @@ npx @vscode/vsce publish major
 - [ ] `icon.png` — 128x128 이상 권장
 - [ ] `LICENSE` — 패키징 경고가 없도록 포함
 - [ ] `npm run compile` — 빌드 에러 없는지 확인
-- [ ] `npm test` — 이동 회귀 및 먹기 후 대기 포즈 회귀 확인
+- [ ] `npm test` — visible range, fish spawn, reset cleanup, post-eat/session sleep 회귀 확인
 - [ ] `.vscodeignore` — VSIX에 포함/제외할 파일 확인
 
 ## 5. 배포 취소 / 삭제

@@ -341,6 +341,30 @@ function testVisibleRangeConstraint(): void {
   }
 }
 
+function testDisjointVisibleRangesExcludeHiddenLinesFromFishSpawns(): void {
+  console.log('\n▸ disjoint visible ranges exclude hidden gap lines from fish spawns');
+  const terrain = Array(7).fill('xxxxxxxxxx').join('\n');
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 99999 });
+  physics.updateTerrain(terrain, [
+    { start: 0, end: 2 },
+    { start: 4, end: 6 },
+  ]);
+  physics.spawn(0);
+
+  const internal = physics as any;
+  const positions = internal.getValidFishPositions() as Array<{ line: number; col: number; dist: number }>;
+
+  assert(positions.length > 0, 'Disjoint visible ranges still produce fish candidates');
+  assert(
+    positions.some(pos => pos.line >= 4 && pos.line <= 6),
+    'Fish candidates can still appear in the second visible range',
+  );
+  assert(
+    !positions.some(pos => pos.line === 3),
+    'Fish candidates never appear on hidden gap lines between visible ranges',
+  );
+}
+
 function testSameLineRunTreatsInteriorSpacesAsTraversable(): void {
   console.log('\n▸ same-line movement crosses interior spaces within text edges');
   const terrain = 'abc   def';
@@ -558,6 +582,7 @@ testLandingPauseSeparatesConsecutiveVerticalMoves();
 testPostEatHoldsLastPoseUntilRespawn();
 testSessionEndSleepsUntilRespawn();
 testVisibleRangeConstraint();
+testDisjointVisibleRangesExcludeHiddenLinesFromFishSpawns();
 testSameLineRunTreatsInteriorSpacesAsTraversable();
 testFishSpawnCandidatesRequireExactReachability();
 testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases();

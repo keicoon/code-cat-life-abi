@@ -1,94 +1,69 @@
-# Code Cat Life Abi — VS Code Extension Prototyping Plan
+# Code Cat Life Abi — Current Implementation Snapshot
 
 ## Overview
-VS Code extension: 유저가 일정 시간 입력하지 않으면 하얀 고양이가 에디터 위에 나타나서 텍스트를 플랫포머 지형처럼 돌아다니고, 생선을 쫓아가 먹는다. 타이핑 재개 시 고양이가 사라진다.
 
-## Confirmed Assets (26 SVGs)
-| Category | Files | Count |
-|----------|-------|-------|
-| Run | cat_0~4_right/left.svg | 10 |
-| Sleep | cat_sleep.svg, cat_sleep_left.svg | 2 |
-| Jump | cat_jump_right/left.svg | 2 |
-| Fall | cat_fall_right/left.svg | 2 |
-| Crouch | cat_crouch_right/left.svg | 2 |
-| Eat | cat_eat_0~1_right/left.svg | 4 |
-| Surprise | cat_surprise_right/left.svg | 2 |
-| Fish | fish.svg | 1 |
-| Paw | paw.svg | 1 |
+현재 확장은 다음 흐름으로 동작한다.
 
-**Deprecated**: walk (품질 부족), climb (비현실적)
+1. 사용자가 일정 시간 입력하지 않으면 `extension.ts`가 고양이 스폰을 시도한다.
+2. 현재 활성 에디터의 텍스트와 `visibleRanges`를 `cat-physics.ts`에 전달한다.
+3. 현재 스폰 위치에서 실제로 도달 가능한 생선 후보가 하나라도 있을 때만 고양이가 활성화된다.
+4. 고양이는 보이는 텍스트를 지형처럼 사용해 생선을 추적하고, 세션 수만큼 먹으면 sleep 상태로 쉰다.
+5. 타이핑, 커서 이동, 에디터 전환, 스크롤이 발생하면 고양이는 despawn 된다.
 
-## Architecture
-```
-code-cat-life-abi/
-├── src/
-│   ├── extension.ts          # activate/deactivate, idle detection
-│   ├── cat-physics.ts        # terrain parsing, A* pathfinding, state machine
-│   ├── cat-renderer.ts       # ICatRenderer interface
-│   ├── decoration-renderer.ts # TextEditorDecorationType 기반 구현
-│   ├── sprite-manager.ts     # SVG → data-uri 변환, 프레임 관리
-│   └── types.ts              # shared types/enums
-├── sprites/                  # SVG assets (26 files)
-├── package.json              # extension manifest
-└── tsconfig.json
+## Runtime Structure
+
+```text
+src/
+├── extension.ts            # VS Code 이벤트 연결, idle timer, spawn/despawn, status bar, debug logs
+├── cat-physics.ts          # 지형 파싱, visible range 제약, pathfinding, fish 후보 계산, 상태 머신
+├── decoration-renderer.ts  # cat/fish/paw decoration 렌더링과 정리
+├── sprite-manager.ts       # SVG 로드, 색상 적용, action/frame 매핑
+└── types.ts                # shared types/default physics
 ```
 
-## Physics Rules (from HTML demo)
-- **States**: idle, run, jump, fall, eat, surprise, crouch, sleep
-- **Compound**: run_then_jump, run_then_fall (수평 이동 후 수직 전환)
-- **Terrain**: 문자 = solid, 공백/빈줄 = air. 고양이는 텍스트 위에 서있음
-- **Jump**: 최대 3줄 위, col±1 통로 필요, 착지 줄에 텍스트 존재 필수
-- **Fall**: 무제한 낙하 (중력), 첫 텍스트 줄에 착지
-- **Fish**: 도달 가능한 가장 먼 위치 top50%에서 랜덤 스폰 → A*로 추적
-- **Speed**: RUN=0.4, JUMP=0.3, FALL=0.5 (chars/tick), tick=80ms
+## Current Behavior
 
-## Implementation Phases
+### Visibility
 
-### Phase 1: Extension Scaffolding
-- yo code로 TypeScript extension 생성
-- package.json: activation event, commands (toggle, settings)
-- 기본 activate/deactivate 구조
+- 고양이와 생선은 `TextEditor.visibleRanges`에 포함된 줄에서만 동작한다.
+- visible range 사이의 숨겨진 gap line은 보이지 않는 줄로 처리한다.
+- 현재 스폰 위치에서 유효한 생선 후보가 전혀 없으면 고양이는 에디터에 나타나지 않고 status bar만 sleep 상태로 남는다.
 
-### Phase 2: Sprite System
-- SVG 파일 → base64 data-uri 변환 (빌드 타임 or 런타임)
-- SpriteManager: state/direction/frame → data-uri 매핑
-- TextEditorDecorationType 생성/교체 로직
+### Terrain Model
 
-### Phase 3: Terrain & Physics
-- 현재 에디터 텍스트 → terrain map 변환
-- A* pathfinding 포팅 (line-level nodes, jump/fall edges)
-- State machine + compound state 로직
-- Fish spawn/chase 시스템
+- 줄의 첫 non-space부터 마지막 non-space까지를 같은 수평 지형으로 본다.
+- 따라서 same-y 이동에서는 줄 내부 공백도 별도 gap으로 취급하지 않는다.
+- 공백만 있는 줄이나 visible range 밖 줄에는 착지할 수 없다.
 
-### Phase 4: Renderer
-- DecorationRenderer: 고양이 위치 → decoration 적용
-  - `before` pseudo-element with background-image (data-uri SVG)
-  - 매 tick마다 이전 decoration dispose → 새 decoration setDecorations
-- Fish decoration (별도 DecorationType)
-- Footprint trail (paw.svg, opacity fade, auto-dispose)
-- Zzz effect (sleep 시 'z' 문자 decoration)
+### Movement
 
-### Phase 5: Idle Detection & Integration
-- onDidChangeTextEditorSelection / onDidChangeTextDocument 리스너
-- N초 idle → 고양이 스폰 (sleep 상태)
-- 타이핑 재개 → 고양이 즉시 사라짐
-- 에디터 전환 시 고양이 위치 리셋
+- 상태: `idle`, `sleep`, `run`, `jump`, `fall`, `land`, `eat`, `post_eat`, `surprise`, `run_then_jump`, `run_then_fall`
+- vertical step의 수평 이동량은 `0` 또는 `2 × lineDelta`
+- 큰 수평 이동이 필요하면 같은 줄에서 `run`으로 이동한 뒤 vertical step을 수행한다.
+- 생선 후보는 exact `(line, col)` 경로가 성립하는 경우에만 생성된다.
 
-### Phase 6: Polish & Config
-- extension settings: idle timeout, animation speed, enable/disable
-- StatusBar item (고양이 상태 표시, 잡은 생선 수)
-- 에디터 스크롤/리사이즈 대응
-- 빈 파일/빈 줄만 있는 파일 처리
+### Session Flow
 
-## Key Technical Decisions
-1. **Decoration API only** (공식 API, Plan A)
-2. **SVG as data-uri**: `before` pseudo-element의 `background-image`로 렌더링
-3. **Tick 기반 업데이트**: setInterval(80ms)로 물리 엔진 구동
-4. **단일 에디터**: activeTextEditor에서만 동작
-5. **텍스트 변경 감지**: document 변경 시 terrain 재파싱 + 고양이 위치 유효성 검사
+- 생선을 먹으면 `eat` 2단계를 거친다.
+- 세션이 계속되면 `post_eat`으로 마지막 먹기 프레임을 유지한다.
+- `fishSessionCount`만큼 먹으면 `sleep` 상태로 들어가 `sleepTime` 동안 쉰다.
 
-## Risks & Mitigations
-- **성능**: decoration 교체 빈번 → dispose/create 최소화, 변경 시에만 업데이트
-- **빈줄 문제**: zero-width Range + `before` pseudo로 빈줄에도 렌더링 가능 (검증됨)
-- **SVG 크기**: decoration은 line-height에 맞춰짐, 고양이 크기는 CSS로 제어
-- **다중 에디터**: 일단 active editor만 지원, 추후 확장
+## Current Verification
+
+- 테스트 엔트리: `src/cat-physics.test.ts`
+- 실행 명령: `npm test`
+- 현재 회귀 스위트는 다음을 보호한다.
+  - 텍스트 위 유지와 이동 연속성
+  - same-y 내부 공백 이동
+  - vertical stride 규칙
+  - visible range 제약과 disjoint visible range gap 배제
+  - exact fish reachability spawn
+  - no-fish-candidate spawn skip 전제
+  - reset 시 transient state 정리
+  - post-eat / sleep 세션 흐름
+
+## Non-Goals For Now
+
+- same-y 1칸 hop 같은 별도 수평 액션은 아직 구현하지 않았다.
+- 한 줄 내부를 연속된 segment들로 나누는 지형 모델도 아직 도입하지 않았다.
+- multi-editor 동시 지원은 하지 않고 active editor만 대상으로 동작한다.

@@ -301,10 +301,16 @@ function resetIdleTimer(): void {
   }, currentConfig.idleTimeout * 1000);
 }
 
-function getVisibleRange(editor: vscode.TextEditor): { start: number; end: number } {
+function getVisibleRanges(editor: vscode.TextEditor): Array<{ start: number; end: number }> {
   const ranges = editor.visibleRanges;
-  if (ranges.length === 0) { return { start: 0, end: editor.document.lineCount - 1 }; }
-  return { start: ranges[0].start.line, end: ranges[ranges.length - 1].end.line };
+  if (ranges.length === 0) {
+    return [{ start: 0, end: editor.document.lineCount - 1 }];
+  }
+  return ranges.map(range => ({ start: range.start.line, end: range.end.line }));
+}
+
+function isLineInVisibleRanges(line: number, visibleRanges: Array<{ start: number; end: number }>): boolean {
+  return visibleRanges.some(range => line >= range.start && line <= range.end);
 }
 
 function spawnCat(): void {
@@ -312,12 +318,14 @@ function spawnCat(): void {
   if (!editor || !currentConfig.enabled) { return; }
 
   const text = editor.document.getText();
-  const { start, end } = getVisibleRange(editor);
-  physics.updateTerrain(text, start, end);
+  const visibleRanges = getVisibleRanges(editor);
+  physics.updateTerrain(text, visibleRanges);
+  const visibleLabel = visibleRanges.map(range => `${range.start}-${range.end}`).join(',');
 
   // Spawn near cursor if visible, otherwise top-left of visible area
   const cursorLine = editor.selection.active.line;
-  const spawnLine = (cursorLine >= start && cursorLine <= end) ? cursorLine : start;
+  const start = visibleRanges[0].start;
+  const spawnLine = isLineInVisibleRanges(cursorLine, visibleRanges) ? cursorLine : start;
   physics.spawn(spawnLine);
   const state = physics.getState();
 
@@ -326,7 +334,7 @@ function spawnCat(): void {
     updateStatusBar();
     log.info(`Cat spawn skipped at line ${state.line}: no reachable fish targets`);
     debugLog(
-      `spawn skipped visible=${start}-${end} cursor=${cursorLine} state={${formatState(state)}} ` +
+      `spawn skipped visible=${visibleLabel} cursor=${cursorLine} state={${formatState(state)}} ` +
       `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, state)}`,
     );
     return;
@@ -340,7 +348,7 @@ function spawnCat(): void {
 
   log.info(`Cat spawned at line ${state.line}, col ${state.col} (cursor was at line ${cursorLine})`);
   debugLog(
-    `spawn visible=${start}-${end} cursor=${cursorLine} state={${formatState(state)}} ` +
+    `spawn visible=${visibleLabel} cursor=${cursorLine} state={${formatState(state)}} ` +
     `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, state)}`,
   );
 

@@ -70,10 +70,12 @@ maxH = 2 × lineDelta
 
 ## 규칙 4: 보이는 영역 제약 (Visible Range)
 
-> 고양이는 `visibleStart` ~ `visibleEnd` 범위 내에서만 이동한다.
+> 고양이와 생선은 에디터의 **실제 visible ranges** 안에서만 동작한다.
 
-- 범위 밖 라인은 `isEmptyLine() = true`로 처리
-- 생선도 보이는 영역 내에서만 생성
+- 현재 구현은 단일 `start~end` 구간이 아니라 `TextEditor.visibleRanges`의 **모든 실제 구간**을 그대로 반영한다
+- 여러 visible range 사이의 숨겨진 gap line은 보이지 않는 줄로 처리한다
+- 보이지 않는 줄은 `isEmptyLine() = true`로 처리
+- 생선도 실제로 보이는 줄에서만 생성된다
 
 ---
 
@@ -123,7 +125,7 @@ maxH = 2 × lineDelta
 | same-X 임시 diagonal 후 goal 정렬 | `testAlignedGoalRouteUsesTemporaryDiagonalThenSettles` |
 | multi-line scaled stride / zero fallback | `testMultiLineVerticalStrideScalesWithLineDistance`, `testMultiLineVerticalStrideFallsBackToZeroWhenLandingIsImpossible` |
 | landing pause | `testLandingPauseSeparatesConsecutiveVerticalMoves` |
-| visible range 제약 | `testVisibleRangeConstraint` |
+| visible range 제약 | `testVisibleRangeConstraint`, `testDisjointVisibleRangesExcludeHiddenLinesFromFishSpawns` |
 | exact fish reachability spawn | `testFishSpawnCandidatesRequireExactReachability` |
 | no-fish-candidate spawn skip 전제 | `testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases` |
 | post-eat / session sleep | `testPostEatHoldsLastPoseUntilRespawn`, `testSessionEndSleepsUntilRespawn` |
