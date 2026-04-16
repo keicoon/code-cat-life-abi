@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.2
+
+- switched the Marketplace README to English-only for broader default visibility
+
 ## 0.1.1
 
 - limited fish spawning to the active contiguous visible editor segment around the cursor/spawn line
