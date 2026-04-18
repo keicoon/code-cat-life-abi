@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.3
+
+- stabilized the cat session loop to avoid timer bunching after extension-host delays
+- restricted reset/despawn triggers to the active cat editor session instead of unrelated editor events
+- suppressed decoration-driven visible-range churn more defensively to reduce false movement resets
+- added a long-run movement regression test to guard against drift and teleport-like jumps
+
 ## 0.1.2
 
 - switched the Marketplace README to English-only for broader default visibility
