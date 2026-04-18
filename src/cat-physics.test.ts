@@ -241,6 +241,17 @@ function testMovementStaysOnTextAndContinuous(): void {
   });
 }
 
+function testLongRunMovementHasNoDriftOrTeleport(): void {
+  console.log('\n▸ long-run movement stays continuous without drift');
+  const physics = new CatPhysics({ ...DEFAULT_PHYSICS, quickFishDelay: 5 });
+  physics.updateTerrain(TERRAIN_UNIFORM);
+  physics.spawn(4);
+
+  withMockedRandom(0, () => {
+    runTicks(physics, TERRAIN_UNIFORM.split('\n'), 25000);
+  });
+}
+
 function testVerticalLandingsUseOnlyZeroOrFixedStride(): void {
   console.log('\n▸ vertical landings use only zero or fixed stride');
   const scenarios: Array<{ name: string; terrain: string; spawnLine: number }> = [
@@ -576,6 +587,7 @@ console.log('  Code Cat Life Abi — Movement Regression Suite');
 console.log('═══════════════════════════════════════════');
 
 testMovementStaysOnTextAndContinuous();
+testLongRunMovementHasNoDriftOrTeleport();
 testVerticalLandingsUseOnlyZeroOrFixedStride();
 testGoalDirectedRouteUsesProgressiveDiagonalStride();
 testAlignedGoalRouteUsesTemporaryDiagonalThenSettles();

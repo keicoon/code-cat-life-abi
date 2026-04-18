@@ -19,6 +19,8 @@ let log: vscode.LogOutputChannel;
 let statusBarItem: vscode.StatusBarItem | null = null;
 let statusState = 'sleep';
 let lastTickAt = 0;
+let catEditor: vscode.TextEditor | null = null;
+let ignoreVisibleRangeChangesUntil = 0;
 
 function getTickMs(): number {
   return Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
@@ -124,6 +126,42 @@ function getPhysicsSnapshot(): PhysicsDebugSnapshot | null {
   } catch {
     return null;
   }
+}
+
+function clearTickLoop(): void {
+  if (tickInterval) {
+    clearTimeout(tickInterval);
+    tickInterval = null;
+  }
+}
+
+function scheduleNextTick(delayMs = getTickMs()): void {
+  clearTickLoop();
+  if (!catActive) { return; }
+  tickInterval = setTimeout(() => {
+    tickInterval = null;
+    tickCat();
+  }, delayMs);
+}
+
+function isCatEditorSession(editor: vscode.TextEditor | undefined): boolean {
+  return !!editor && !!catEditor && editor === catEditor;
+}
+
+function isForegroundEditor(editor: vscode.TextEditor | undefined): boolean {
+  return !!editor && editor === vscode.window.activeTextEditor;
+}
+
+function resetIdleTimerForForegroundEditor(editor: vscode.TextEditor | undefined): void {
+  if (isForegroundEditor(editor)) { resetIdleTimer(); }
+}
+
+function resetIdleTimerForForegroundDocument(document: vscode.TextDocument): void {
+  if (vscode.window.activeTextEditor?.document === document) { resetIdleTimer(); }
+}
+
+function suppressVisibleRangeChangesForRender(): void {
+  ignoreVisibleRangeChangesUntil = Date.now() + Math.max(60, Math.round(getTickMs() * 1.5));
 }
 
 function describeRenderAnchor(editor: vscode.TextEditor, state: CatState): string {
@@ -254,18 +292,26 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(configListener);
 
   // Listen for text changes (user is typing)
-  const textChangeListener = vscode.workspace.onDidChangeTextDocument(() => {
+  const textChangeListener = vscode.workspace.onDidChangeTextDocument(e => {
     if (!currentConfig.enabled) { return; }
-    despawnCat('text-change');
-    resetIdleTimer();
+    if (catActive && catEditor && e.document === catEditor.document) {
+      despawnCat('text-change');
+      resetIdleTimer();
+      return;
+    }
+    resetIdleTimerForForegroundDocument(e.document);
   });
   context.subscriptions.push(textChangeListener);
 
   // Listen for selection changes (cursor movement)
-  const selectionListener = vscode.window.onDidChangeTextEditorSelection(() => {
-    if (!currentConfig.enabled || !catActive) { return; }
-    despawnCat('selection-change');
-    resetIdleTimer();
+  const selectionListener = vscode.window.onDidChangeTextEditorSelection(e => {
+    if (!currentConfig.enabled) { return; }
+    if (catActive && isCatEditorSession(e.textEditor)) {
+      despawnCat('selection-change');
+      resetIdleTimer();
+      return;
+    }
+    resetIdleTimerForForegroundEditor(e.textEditor);
   });
   context.subscriptions.push(selectionListener);
 
@@ -281,11 +327,19 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(editorChangeListener);
 
   // Listen for scroll — despawn cat + reset idle timer
-  // Guard against feedback loop: decoration updates can trigger visible-range changes
-  const scrollListener = vscode.window.onDidChangeTextEditorVisibleRanges(() => {
-    if (!currentConfig.enabled || !catActive || isRendering) { return; }
-    despawnCat('visible-range-change');
-    resetIdleTimer();
+  // Decoration/layout updates can transiently fire visible-range changes on the same editor.
+  const scrollListener = vscode.window.onDidChangeTextEditorVisibleRanges(e => {
+    if (!currentConfig.enabled || !isForegroundEditor(e.textEditor)) { return; }
+    if (catActive && isCatEditorSession(e.textEditor)) {
+      if (isRendering || Date.now() <= ignoreVisibleRangeChangesUntil) {
+        debugLog('ignored visible-range-change during render suppression');
+        return;
+      }
+      despawnCat('visible-range-change');
+      resetIdleTimer();
+      return;
+    }
+    resetIdleTimerForForegroundEditor(e.textEditor);
   });
   context.subscriptions.push(scrollListener);
 
@@ -329,6 +383,7 @@ function spawnCat(): void {
   const state = physics.getState();
 
   if (!physics.canSpawnFishFromCurrentPosition()) {
+    catEditor = null;
     statusState = 'sleep';
     updateStatusBar();
     log.info(`Cat spawn skipped at line ${state.line}: no reachable fish targets`);
@@ -340,6 +395,8 @@ function spawnCat(): void {
   }
 
   catActive = true;
+  catEditor = editor;
+  ignoreVisibleRangeChangesUntil = 0;
   lastFootprintCol = -999;
   lastTickAt = 0;
   statusState = formatActionLabel(state.action);
@@ -351,14 +408,12 @@ function spawnCat(): void {
     `${formatSnapshot(getPhysicsSnapshot())} ${describeRenderAnchor(editor, state)}`,
   );
 
-  // Start tick loop (speed-adjusted tick interval)
-  const tickMs = getTickMs();
-  if (tickInterval) { clearInterval(tickInterval); }
-  tickInterval = setInterval(() => tickCat(), tickMs);
+  // Use a self-scheduled timeout loop so delayed extension-host work does not bunch ticks.
+  scheduleNextTick();
 }
 
 function tickCat(): void {
-  const editor = vscode.window.activeTextEditor;
+  const editor = catEditor;
   if (!editor || !catActive) { despawnCat('tick:no-active-editor'); return; }
 
   try {
@@ -400,6 +455,7 @@ function tickCat(): void {
 
     // Render cat with config (suppress scroll listener during decoration updates)
     isRendering = true;
+    suppressVisibleRangeChangesForRender();
     renderer.renderCat(editor, state, currentConfig);
 
     // Render fish
@@ -416,6 +472,7 @@ function tickCat(): void {
         }
       }
     }
+    scheduleNextTick();
   } catch (e: any) {
     isRendering = false;
     log.error(`ERROR in tick: ${e.message}\n${e.stack}`);
@@ -435,11 +492,13 @@ function despawnCat(reason = 'unknown'): void {
     );
   }
   catActive = false;
+  catEditor = null;
   isRendering = false;
   lastTickAt = 0;
+  ignoreVisibleRangeChangesUntil = 0;
   statusState = currentConfig.enabled ? 'sleep' : 'disabled';
   updateStatusBar();
-  if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
+  clearTickLoop();
   try {
     renderer?.clearAll();
     physics?.reset();
