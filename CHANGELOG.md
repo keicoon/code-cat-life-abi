@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.1
+
+- aligned `cat_surprise` SVG sprite horizontal centering and updated `docs/movement-rules.md`
+- replaced preview GIF with a live VS Code capture on `demo/01-dense-terrain.ts`
+
 ## 0.2.0
 
 - refactored the monolithic physics engine into modular components (`TerrainGrid`, `Pathfinder`, `StepAnimator`, `CatStateMachine`)
