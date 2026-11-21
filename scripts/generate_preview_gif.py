@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -82,7 +83,7 @@ def get_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 def draw_editor_background(draw: ImageDraw.ImageDraw, font: ImageFont.ImageFont) -> None:
     draw.rounded_rectangle((18, 18, CANVAS_W - 18, CANVAS_H - 18), radius=18, fill="#111827", outline="#334155", width=2)
     draw.rounded_rectangle((18, 18, CANVAS_W - 18, 54), radius=18, fill="#0f172a")
-    draw.text((36, 28), "code-cat-life-abi / src / cat-physics.ts", font=font, fill="#94a3b8")
+    draw.text((36, 28), "code-cat-life-abi / src / cat-state-machine.ts", font=font, fill="#94a3b8")
 
     lines = [
         ("function chaseFish() {", 62, 94, "#e2e8f0"),
@@ -166,6 +167,7 @@ def main() -> None:
         disposal=2,
         optimize=True,
     )
+    shutil.rmtree(TMP, ignore_errors=True)
     print(f"wrote {OUTPUT}")
 
 
