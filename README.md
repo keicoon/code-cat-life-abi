@@ -53,6 +53,7 @@ npm test
 npm run watch
 ```
 
+- Architecture: [docs/architecture.md](docs/architecture.md)
 - Movement rules: [docs/movement-rules.md](docs/movement-rules.md)
 - Publishing guide: [docs/publishing.md](docs/publishing.md)
 

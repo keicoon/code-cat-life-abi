@@ -1,5 +1,8 @@
 .vscode/**
 .vscode-test/**
+out/integration/**
+out/*.test.js
+out/*.test.js.map
 src/**
 prototype/**
 demo/**

@@ -9,9 +9,12 @@ export type CatAction =
   | 'land'
   | 'eat'
   | 'post_eat'
-  | 'surprise'
-  | 'run_then_jump'
-  | 'run_then_fall';
+  | 'surprise';
+
+export interface GridPoint {
+  readonly line: number;
+  readonly col: number;
+}
 
 export interface CatState {
   line: number;
@@ -23,63 +26,71 @@ export interface CatState {
 }
 
 export interface FishState {
-  line: number;
-  col: number;
-  active: boolean;
+  readonly line: number;
+  readonly col: number;
+  readonly active: boolean;
 }
 
-export interface TextEdge {
-  left: number;
-  right: number;
+export interface TextSpan {
+  readonly left: number;
+  readonly right: number;
 }
 
-export interface RouteStep {
-  line: number;
-  col: number;
-  landingCol: number;
-  action: 'jump' | 'fall';
+export interface WalkStep {
+  readonly type: 'walk';
+  readonly fromLine: number;
+  readonly fromCol: number;
+  readonly toLine: number;
+  toCol: number;
 }
 
-export interface PhysicsConfig {
-  runSpeed: number;
-  jumpSpeed: number;
-  fallSpeed: number;
-  landingPauseDuration: number;
-  maxJumpLines: number;
-  tickMs: number;
-  quickFishDelay: number;
-  sleepDelay: number;
-  fishSessionCount: number;
-  fishChaseTimeout: number;
-  surpriseDuration: number;
-  eatDuration: number;
+export interface VerticalStep {
+  readonly type: 'jump' | 'fall';
+  readonly fromLine: number;
+  readonly fromCol: number;
+  readonly toLine: number;
+  readonly toCol: number;
+}
+
+export type MoveStep = WalkStep | VerticalStep;
+
+export interface EngineConfig {
+  readonly runSpeed: number;
+  readonly jumpSpeed: number;
+  readonly fallSpeed: number;
+  readonly landingPauseDuration: number;
+  readonly maxJumpLines: number;
+  readonly tickMs: number;
+  readonly quickFishDelay: number;
+  readonly sleepDelay: number;
+  readonly fishSessionCount: number;
+  readonly fishChaseTimeout: number;
+  readonly surpriseDuration: number;
+  readonly eatDuration: number;
 }
 
 export interface ExtensionConfig {
-  enabled: boolean;
-  catColor: string;
-  idleTimeout: number;
-  sleepTime: number;
-  fishSessionCount: number;
-  animationSpeed: number;
-  showFootprints: boolean;
-  debugMovementLogs: boolean;
+  readonly enabled: boolean;
+  readonly catColor: string;
+  readonly idleTimeout: number;
+  readonly sleepTime: number;
+  readonly fishSessionCount: number;
+  readonly animationSpeed: number;
+  readonly showFootprints: boolean;
+  readonly debugMovementLogs: boolean;
 }
 
-export interface PhysicsDebugSnapshot {
-  targetLine: number;
-  targetCol: number;
-  plannedLandingCol: number;
-  jumpStartLine: number;
-  jumpStartCol: number;
-  routeIdx: number;
-  routeLength: number;
-  routeGoalCol: number;
-  fishSpawnTimer: number;
-  fishChaseTicks: number;
+export interface EngineDebugSnapshot {
+  readonly machineState: string;
+  readonly targetLine: number;
+  readonly targetCol: number;
+  readonly stepIndex: number;
+  readonly stepCount: number;
+  readonly fishSpawnTimer: number;
+  readonly fishChaseTicks: number;
 }
 
-export const DEFAULT_PHYSICS: PhysicsConfig = {
+export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   runSpeed: 0.4,
   jumpSpeed: 0.2,
   fallSpeed: 0.2,

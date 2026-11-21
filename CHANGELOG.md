@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.0
+
+- refactored the monolithic physics engine into modular components (`TerrainGrid`, `Pathfinder`, `StepAnimator`, `CatStateMachine`)
+- unified Dijkstra reachability and A* routing on `(line, col)` grid coordinates, splitting interior gaps of 16+ spaces into separate floor spans
+- fixed horizontal wobble during jumps by anchoring cat/fish/footprint decorations at column 0 with unrounded character width
+- expanded `viewBox` bounds on jump/fall SVG sprites to prevent clipping and pivot shifts
+- fixed mid-air fish eating, floating-point walk micro-stalls, and un-awaited `toggle` command config updates
+- added strict TypeScript/ESLint rules, 26 unit/scenario tests, VS Code Extension Host integration tests, and `docs/architecture.md`
+
 ## 0.1.3
 
 - stabilized the cat session loop to avoid timer bunching after extension-host delays

@@ -13,7 +13,7 @@ function getSizes(): {
   const fontSize = editorCfg.get<number>('fontSize') ?? 14;
   const lineHeight = editorCfg.get<number>('lineHeight') ?? 0;
   const lineHeightPx = lineHeight > 0 ? lineHeight : Math.round(fontSize * 1.5);
-  const charWidthPx = Math.round(fontSize * 0.6);
+  const charWidthPx = fontSize * 0.6;
   const catW = Math.round(fontSize * 2);
   const catH = Math.round(fontSize * 1.4);
   const liftGap = Math.round(fontSize * 0.4);
@@ -43,24 +43,18 @@ export class DecorationRenderer {
   renderCat(editor: vscode.TextEditor, state: CatState, config: ExtensionConfig): void {
     const spriteUri = this.sprites.getFrame(state.action, state.direction, state.frame);
 
-    // Integer anchor for decoration placement
+    // Integer line anchor for decoration placement
     const baseLine = Math.floor(state.line);
-    const baseCol = Math.round(state.col);
 
     if (baseLine < 0 || baseLine >= editor.document.lineCount) { this.clearCat(); return; }
 
     const { catW, catH, liftGap, lineHeightPx, charWidthPx } = getSizes();
 
-    // Anchor col clamped to actual line length (empty/short lines can't host baseCol)
-    const lineLength = editor.document.lineAt(baseLine).text.length;
-    const safeCol = Math.min(baseCol, Math.max(0, lineLength));
-    const colDrift = baseCol - safeCol; // cols lost to short/empty anchor line
-
-    // Smooth sub-pixel offset via CSS transform (includes colDrift compensation)
+    // Anchor at column 0 and position linearly via CSS transform so empty/short lines
+    // never cause horizontal snapping or rounding wobble during jumps.
     const fracLine = state.line - baseLine;
-    const fracCol = state.col - baseCol;
     const offsetY = Math.round(fracLine * lineHeightPx);
-    const offsetX = Math.round((fracCol + colDrift) * charWidthPx);
+    const offsetX = Math.round(state.col * charWidthPx);
 
     const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
@@ -81,7 +75,7 @@ export class DecorationRenderer {
       },
     });
 
-    const range = new vscode.Range(baseLine, safeCol, baseLine, safeCol);
+    const range = new vscode.Range(baseLine, 0, baseLine, 0);
 
     // Set new first, then dispose old → no visual gap between frames
     editor.setDecorations(newDeco, [range]);
@@ -97,10 +91,11 @@ export class DecorationRenderer {
 
     if (line < 0 || line >= editor.document.lineCount) { this.clearFish(); return; }
 
-    const { fishW, fishH, liftGap } = getSizes();
-    const fishKey = `${editor.document.uri.toString()}:${line}:${col}:${fishW}:${fishH}:${liftGap}`;
+    const { fishW, fishH, liftGap, charWidthPx } = getSizes();
+    const fishKey = `${editor.document.uri.toString()}:${line}:${col}:${fishW}:${fishH}:${liftGap}:${charWidthPx}`;
     if (this.fishRenderKey === fishKey && this.fishDecoration) { return; }
 
+    const offsetX = Math.round(col * charWidthPx);
     const newDeco = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
@@ -113,13 +108,12 @@ export class DecorationRenderer {
           background-repeat: no-repeat;
           background-position: bottom center;
           filter: drop-shadow(0 0 6px rgba(74,144,217,0.6));
-          pointer-events: none;`,
+          pointer-events: none;
+          transform: translate(${offsetX}px, 0px);`,
       },
     });
 
-    const lineLength = editor.document.lineAt(line).text.length;
-    const safeCol = Math.min(col, Math.max(0, lineLength));
-    const range = new vscode.Range(line, safeCol, line, safeCol);
+    const range = new vscode.Range(line, 0, line, 0);
 
     editor.setDecorations(newDeco, [range]);
     this.fishDecoration?.dispose();
@@ -132,7 +126,8 @@ export class DecorationRenderer {
 
     if (line < 0 || line >= editor.document.lineCount) { return; }
 
-    const { pawW, pawH } = getSizes();
+    const { pawW, pawH, charWidthPx } = getSizes();
+    const offsetX = Math.round(col * charWidthPx);
 
     const decoration = vscode.window.createTextEditorDecorationType({
       before: {
@@ -147,13 +142,12 @@ export class DecorationRenderer {
           background-repeat: no-repeat;
           background-position: bottom center;
           opacity: 0.3;
-          pointer-events: none;`,
+          pointer-events: none;
+          transform: translate(${offsetX}px, 0px);`,
       },
     });
 
-    const lineLength = editor.document.lineAt(line).text.length;
-    const safeCol = Math.min(col, Math.max(0, lineLength));
-    const range = new vscode.Range(line, safeCol, line, safeCol);
+    const range = new vscode.Range(line, 0, line, 0);
     editor.setDecorations(decoration, [range]);
 
     const timer = setTimeout(() => {

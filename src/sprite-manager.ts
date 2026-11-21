@@ -65,14 +65,14 @@ export class SpriteManager {
     const mapped = this.mapAction(action);
     const key = `${mapped}_${direction}`;
     const frames = this.coloredCache.get(key);
-    if (!frames) {
-      return this.coloredCache.get('sleep_right')![0];
+    if (!frames || frames.length === 0) {
+      return this.coloredCache.get('sleep_right')?.[0] ?? '';
     }
     return frames[frame % frames.length];
   }
 
   getSpecial(name: 'fish' | 'paw'): string {
-    return this.coloredCache.get(name)![0];
+    return this.coloredCache.get(name)?.[0] ?? '';
   }
 
   getFrameCount(action: CatAction): number {
@@ -87,10 +87,6 @@ export class SpriteManager {
 
   private mapAction(action: CatAction): string {
     switch (action) {
-      case 'run_then_jump':
-      case 'run_then_fall':
-      case 'run':
-        return 'run';
       case 'idle':
       case 'sleep':
         return 'sleep';

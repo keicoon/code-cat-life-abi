@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { CatPhysics } from './cat-physics';
+import { CatStateMachine } from './cat-state-machine';
 import { DecorationRenderer } from './decoration-renderer';
 import { SpriteManager } from './sprite-manager';
-import { CatState, DEFAULT_PHYSICS, ExtensionConfig, PhysicsDebugSnapshot } from './types';
+import { CatState, DEFAULT_ENGINE_CONFIG, EngineDebugSnapshot, ExtensionConfig } from './types';
 import { formatVisibleRanges, selectActiveVisibleRange, VisibleLineRange } from './visible-range';
 
-let physics: CatPhysics;
+let engine: CatStateMachine;
 let renderer: DecorationRenderer;
 let sprites: SpriteManager;
 let tickInterval: NodeJS.Timeout | null = null;
@@ -23,7 +23,7 @@ let catEditor: vscode.TextEditor | null = null;
 let ignoreVisibleRangeChangesUntil = 0;
 
 function getTickMs(): number {
-  return Math.round(DEFAULT_PHYSICS.tickMs / currentConfig.animationSpeed);
+  return Math.round(DEFAULT_ENGINE_CONFIG.tickMs / currentConfig.animationSpeed);
 }
 
 function readConfig(): ExtensionConfig {
@@ -45,22 +45,21 @@ function applyConfig(): void {
   currentConfig = readConfig();
   sprites.setColor(currentConfig.catColor);
 
-  // Update physics config from user settings
   const tickMs = getTickMs();
   const quickFishDelay = Math.max(
     1,
-    Math.round((DEFAULT_PHYSICS.quickFishDelay * DEFAULT_PHYSICS.tickMs) / tickMs),
+    Math.round((DEFAULT_ENGINE_CONFIG.quickFishDelay * DEFAULT_ENGINE_CONFIG.tickMs) / tickMs),
   );
   const sleepDelay = Math.max(quickFishDelay, Math.round((currentConfig.sleepTime * 1000) / tickMs));
-  physics = new CatPhysics({
-    ...DEFAULT_PHYSICS,
+  engine = new CatStateMachine({
+    ...DEFAULT_ENGINE_CONFIG,
     tickMs,
     quickFishDelay,
     sleepDelay,
     fishSessionCount: currentConfig.fishSessionCount,
-    runSpeed: DEFAULT_PHYSICS.runSpeed * currentConfig.animationSpeed,
-    jumpSpeed: DEFAULT_PHYSICS.jumpSpeed * currentConfig.animationSpeed,
-    fallSpeed: DEFAULT_PHYSICS.fallSpeed * currentConfig.animationSpeed,
+    runSpeed: DEFAULT_ENGINE_CONFIG.runSpeed * currentConfig.animationSpeed,
+    jumpSpeed: DEFAULT_ENGINE_CONFIG.jumpSpeed * currentConfig.animationSpeed,
+    fallSpeed: DEFAULT_ENGINE_CONFIG.fallSpeed * currentConfig.animationSpeed,
   });
   statusState = currentConfig.enabled ? 'sleep' : 'disabled';
   updateStatusBar();
@@ -72,10 +71,6 @@ function applyConfig(): void {
 
 function formatActionLabel(action: string): string {
   switch (action) {
-    case 'run_then_jump':
-      return 'run then jump';
-    case 'run_then_fall':
-      return 'run then fall';
     case 'post_eat':
       return 'post-eat';
     case 'eat':
@@ -89,6 +84,13 @@ function formatActionLabel(action: string): string {
     default:
       return action;
   }
+}
+
+function formatError(err: unknown): { message: string; stack?: string } {
+  if (err instanceof Error) {
+    return { message: err.message, stack: err.stack };
+  }
+  return { message: String(err) };
 }
 
 function debugEnabled(): boolean {
@@ -108,21 +110,19 @@ function formatState(state: CatState): string {
   return `${state.action} line=${state.line.toFixed(2)} col=${state.col.toFixed(2)} dir=${state.direction} ticks=${state.ticksInState}`;
 }
 
-function formatSnapshot(snapshot: PhysicsDebugSnapshot | null): string {
+function formatSnapshot(snapshot: EngineDebugSnapshot | null): string {
   if (!snapshot) { return 'snapshot=n/a'; }
   return [
+    `phase=${snapshot.machineState}`,
     `target=(${snapshot.targetLine},${snapshot.targetCol.toFixed(2)})`,
-    `jumpStart=(${snapshot.jumpStartLine},${snapshot.jumpStartCol.toFixed(2)})`,
-    `plannedLanding=${snapshot.plannedLandingCol.toFixed(2)}`,
-    `route=${snapshot.routeIdx}/${snapshot.routeLength}`,
-    `goalCol=${snapshot.routeGoalCol}`,
+    `step=${snapshot.stepIndex}/${snapshot.stepCount}`,
     `timers=spawn:${snapshot.fishSpawnTimer},chase:${snapshot.fishChaseTicks}`,
   ].join(' ');
 }
 
-function getPhysicsSnapshot(): PhysicsDebugSnapshot | null {
+function getPhysicsSnapshot(): EngineDebugSnapshot | null {
   try {
-    return physics?.getDebugSnapshot() ?? null;
+    return engine?.getDebugSnapshot() ?? null;
   } catch {
     return null;
   }
@@ -164,32 +164,25 @@ function suppressVisibleRangeChangesForRender(): void {
   ignoreVisibleRangeChangesUntil = Date.now() + Math.max(60, Math.round(getTickMs() * 1.5));
 }
 
-function describeRenderAnchor(editor: vscode.TextEditor, state: CatState): string {
+function describeRenderAnchor(_editor: vscode.TextEditor, state: CatState): string {
   const editorCfg = vscode.workspace.getConfiguration('editor');
   const fontSize = editorCfg.get<number>('fontSize') ?? 14;
   const lineHeight = editorCfg.get<number>('lineHeight') ?? 0;
   const lineHeightPx = lineHeight > 0 ? lineHeight : Math.round(fontSize * 1.5);
-  const charWidthPx = Math.round(fontSize * 0.6);
+  const charWidthPx = fontSize * 0.6;
   const baseLine = Math.floor(state.line);
-  const baseCol = Math.round(state.col);
-  const lineLength = baseLine >= 0 && baseLine < editor.document.lineCount
-    ? editor.document.lineAt(baseLine).text.length
-    : 0;
-  const safeCol = Math.min(baseCol, Math.max(0, lineLength));
-  const colDrift = baseCol - safeCol;
   const fracLine = state.line - baseLine;
-  const fracCol = state.col - baseCol;
   const offsetY = Math.round(fracLine * lineHeightPx);
-  const offsetX = Math.round((fracCol + colDrift) * charWidthPx);
-  return `anchor=(${baseLine},${safeCol}) rawBaseCol=${baseCol} offset=(${offsetX},${offsetY})`;
+  const offsetX = Math.round(state.col * charWidthPx);
+  return `anchor=(${baseLine},0) offset=(${offsetX},${offsetY})`;
 }
 
 function maybeLogTickAnomaly(prev: CatState, state: CatState): void {
   if (!debugEnabled()) { return; }
 
-  const runSpeed = DEFAULT_PHYSICS.runSpeed * currentConfig.animationSpeed;
-  const jumpSpeed = DEFAULT_PHYSICS.jumpSpeed * currentConfig.animationSpeed;
-  const fallSpeed = DEFAULT_PHYSICS.fallSpeed * currentConfig.animationSpeed;
+  const runSpeed = DEFAULT_ENGINE_CONFIG.runSpeed * currentConfig.animationSpeed;
+  const jumpSpeed = DEFAULT_ENGINE_CONFIG.jumpSpeed * currentConfig.animationSpeed;
+  const fallSpeed = DEFAULT_ENGINE_CONFIG.fallSpeed * currentConfig.animationSpeed;
   const deltaCol = Math.abs(state.col - prev.col);
   const deltaLine = Math.abs(state.line - prev.line);
   const inVertical = (
@@ -243,9 +236,10 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     await sprites.load();
     log.info(`Sprites loaded from ${spritesDir}`);
-  } catch (e: any) {
-    log.error(`ERROR loading sprites: ${e.message}`);
-    vscode.window.showErrorMessage(`Code Cat Life Abi: Failed to load sprites — ${e.message}`);
+  } catch (e: unknown) {
+    const err = formatError(e);
+    log.error(`ERROR loading sprites: ${err.message}`);
+    vscode.window.showErrorMessage(`Code Cat Life Abi: Failed to load sprites — ${err.message}`);
     return;
   }
 
@@ -274,10 +268,10 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(showStatusCmd);
 
   // Toggle command
-  const toggleCmd = vscode.commands.registerCommand('codeCatLifeAbi.toggle', () => {
+  const toggleCmd = vscode.commands.registerCommand('codeCatLifeAbi.toggle', async () => {
     const cfg = vscode.workspace.getConfiguration('codeCatLifeAbi');
     const next = !cfg.get<boolean>('enabled', true);
-    cfg.update('enabled', next, vscode.ConfigurationTarget.Global);
+    await cfg.update('enabled', next, vscode.ConfigurationTarget.Global);
   });
   context.subscriptions.push(toggleCmd);
 
@@ -372,17 +366,17 @@ function spawnCat(): void {
   const visibleRanges = getVisibleRanges(editor);
   const cursorLine = editor.selection.active.line;
   const activeVisibleRange = selectActiveVisibleRange(visibleRanges, cursorLine, editor.document.lineCount);
-  physics.updateTerrain(text, activeVisibleRange.start, activeVisibleRange.end);
+  engine.updateTerrain(text, activeVisibleRange.start, activeVisibleRange.end);
   const visibleLabel = formatVisibleRanges(visibleRanges);
 
   // Spawn near cursor if visible, otherwise top-left of visible area
   const spawnLine = cursorLine >= activeVisibleRange.start && cursorLine <= activeVisibleRange.end
     ? cursorLine
     : activeVisibleRange.start;
-  physics.spawn(spawnLine);
-  const state = physics.getState();
+  engine.spawn(spawnLine);
+  const state = engine.getState();
 
-  if (!physics.canSpawnFishFromCurrentPosition()) {
+  if (!engine.canSpawnFishFromCurrentPosition()) {
     catEditor = null;
     statusState = 'sleep';
     updateStatusBar();
@@ -417,7 +411,7 @@ function tickCat(): void {
   if (!editor || !catActive) { despawnCat('tick:no-active-editor'); return; }
 
   try {
-    const prev = physics.getState();
+    const prev = engine.getState();
     const tickMs = getTickMs();
     const now = Date.now();
     if (debugEnabled() && lastTickAt > 0) {
@@ -430,8 +424,8 @@ function tickCat(): void {
     }
     lastTickAt = now;
 
-    const state = physics.tick();
-    const fish = physics.getFish();
+    const state = engine.tick();
+    const fish = engine.getFish();
     maybeLogTickAnomaly(prev, state);
 
     if ((state.action === 'jump' || state.action === 'fall') && prev.action !== state.action) {
@@ -464,7 +458,7 @@ function tickCat(): void {
 
     // Footprints while running (if enabled)
     if (currentConfig.showFootprints) {
-      if (state.action === 'run' || state.action === 'run_then_jump' || state.action === 'run_then_fall') {
+      if (state.action === 'run') {
         const col = Math.round(state.col);
         if (Math.abs(col - lastFootprintCol) >= 4) {
           renderer.addFootprint(editor, Math.round(state.line), col);
@@ -473,10 +467,11 @@ function tickCat(): void {
       }
     }
     scheduleNextTick();
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const err = formatError(e);
     isRendering = false;
-    log.error(`ERROR in tick: ${e.message}\n${e.stack}`);
-    debugLog(`tick error state={${formatState(physics.getState())}} ${formatSnapshot(getPhysicsSnapshot())}`);
+    log.error(`ERROR in tick: ${err.message}\n${err.stack ?? ''}`);
+    debugLog(`tick error state={${formatState(engine.getState())}} ${formatSnapshot(getPhysicsSnapshot())}`);
     despawnCat('tick:error');
     resetIdleTimer();
   }
@@ -484,7 +479,7 @@ function tickCat(): void {
 
 function despawnCat(reason = 'unknown'): void {
   if (catActive) {
-    const state = physics.getState();
+    const state = engine.getState();
     debugLog(
       `despawn reason=${reason} state={${formatState(state)}} ` +
       `${formatSnapshot(getPhysicsSnapshot())}` +
@@ -501,9 +496,9 @@ function despawnCat(reason = 'unknown'): void {
   clearTickLoop();
   try {
     renderer?.clearAll();
-    physics?.reset();
-  } catch (e: any) {
-    log?.error(`ERROR in despawn: ${e.message}`);
+    engine?.reset();
+  } catch (e: unknown) {
+    log?.error(`ERROR in despawn: ${formatError(e).message}`);
   }
 }
 
