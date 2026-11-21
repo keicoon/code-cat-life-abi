@@ -1,131 +1,67 @@
 # Code Cat Life Abi — 이동 규칙 (Movement Rules)
 
-모든 이동 로직은 아래 규칙을 반드시 준수해야 한다.
-규칙 간 충돌 시 **우선순위가 높은 규칙이 승리**한다.
+모든 이동 로직은 아래 규칙을 준수하며, 세부 아키텍처는 [docs/architecture.md](architecture.md)를 따릅니다.
 
 ---
 
-## 규칙 1: 텍스트 제약 (Text Constraint) — 🔴 절대 규칙 (최우선)
+## 규칙 1: 텍스트 바닥 제약 (Floor Constraint) — 최우선
 
-> 고양이는 **항상** 텍스트가 존재하는 위치에만 있어야 한다.
+> 고양이는 **항상** 유효한 바닥(`TerrainGrid`) 위에서만 멈추고 걷고 착지할 수 있습니다.
 
-- `state.col`은 해당 `state.line`의 `textEdges(line).left` ~ `textEdges(line).right` 범위 내
-- 현재 구현은 한 줄 내부를 **segment 단위**로 나누지 않고, 첫 non-space ~ 마지막 non-space 전체를 같은 수평 지형으로 본다
-- 따라서 same-y 이동에서는 줄 내부 공백(예: `"abc   def"`)을 별도 gap으로 취급하지 않고 그대로 run 할 수 있다
-- **빈 라인**(공백만 있는 라인)에는 착지 불가
-- jump/fall **착지 시점**: `targetCol`은 대상 라인 위의 유효한 stride 착지점이어야 한다
-- run 시: `targetCol`은 대상 라인의 텍스트 범위 내
-- 다른 규칙(per-line cap 등)과 충돌 시 **이 규칙이 항상 우선**
-
-### 적용 지점
-| 상태 | col 제약 보장 방법 |
-|------|-------------------|
-| spawn | `textEdges(line).left`에서 시작 |
-| idle/sleep | 위치 변하지 않음 |
-| run | `targetCol = clampToTextEdges(line, goalCol)` |
-| run_then_jump/fall | 트랜짓 col = `clampToTextEdges(sourceLine, col)` |
-| jump/fall 착지 | `targetCol ∈ {startCol, startCol ± (2 × lineDelta)}` 중 대상 라인에 유효한 착지점, 불가능하면 `startCol` |
-| jump/fall 중간 | 선형 보간 (start→target, 둘 다 텍스트 위) |
+- `TerrainGrid`는 각 가시 라인의 첫 non-space 문자부터 마지막 non-space 문자까지를 바닥으로 색인합니다.
+- 단어 사이 짧은 공백(15칸 이하)은 하나의 연속 바닥(`TextSpan`)으로 취급해 그대로 걸어서 통과합니다.
+- **16칸 이상** 벌어진 내부 공백(`DEFAULT_MAX_WALKABLE_GAP = 16`)은 별도의 바닥 구간으로 분리되어 걸어서 건널 수 없습니다.
+- 공백만 있는 **빈 줄**에는 착지하거나 멈출 수 없습니다.
+- 실행 중 텍스트 편집으로 현재 줄이 비거나 짧아지면 `CatStateMachine`이 즉시 가장 가까운 유효 바닥으로 재배치/클램프합니다.
 
 ---
 
 ## 규칙 2: 이동 연속성 (Movement Continuity)
 
-> 고양이 위치는 매 틱마다 작은 폭으로만 변해야 한다. 순간이동 금지.
+> 고양이 위치는 매 틱마다 일정 속도 이내로만 변해야 하며, 순간이동을 금지합니다.
 
-- **run**: 매 틱 `runSpeed` (0.4 col) 만큼만 이동
-- **jump/fall**: 선형 보간, adaptive speed로 속도 제어
-  - 수평 속도 ≤ `runSpeed × 2` (0.8 col/tick)
-  - 수직 속도 ≤ `jumpSpeed` / `fallSpeed`
-  - 최대 30틱 (≈2.4초)
+- **Walk (`run`):** 매 틱 `runSpeed` (기본 `0.4 col × animationSpeed`) 이내로 이동하며, 부동소수점 오차(`1e-6`)로 인한 미세 지연 없이 목표 열에 정확히 정지합니다.
+- **Jump / Fall:** 출발 `(fromLine, fromCol)`에서 목표 `(toLine, toCol)`까지 선형 보간하며, 수직 속도는 `jumpSpeed` / `fallSpeed`, 수평 속도는 `runSpeed × 2`, 최대 30틱으로 제한됩니다.
+- **Landing Pause (`land`):** 점프 또는 낙하가 끝난 직후 `landingPauseDuration` (기본 `3`틱) 동안 착지 포즈를 유지합니다.
 
 ---
 
-## 규칙 3: 점프/낙하 수평 제한 (Horizontal Cap) — 🟡 최선 노력
+## 규칙 3: 점프 / 낙하 및 경로 탐색 (Grid A* & Dijkstra)
 
-> Y축 이동 중 X축 이동은 **jump, fall 모두 가능**하다. 다만 X 이동량은 매 스텝마다 **0 또는 `2 × 이동 라인 수`**만 허용한다.
+> `Pathfinder`는 줄 단위가 아니라 **`(line, col)` 그리드 상태**에서 직접 탐색합니다.
 
-```
-maxH = 2 × lineDelta
-```
-
-- jump/fall 모두: X 이동량은 `0` 또는 `2 × lineDelta` 컬럼
-- 1줄 점프/낙하: 최대 X = 2 컬럼
-- 2줄 점프/낙하: 최대 X = 4 컬럼
-- 3줄 점프/낙하: 최대 X = 6 컬럼
-- goal 방향으로 stride가 가능하면, goal과의 X 차이가 작아도 Y 이동 중 X를 포함한다
-- scaled diagonal 착지가 텍스트 위에 불가능하면 같은 스텝에서는 `0` stride로 fallback 한다
-- 같은 추적에서 goal을 지나친 뒤에는 반대 방향 stride 대신 `0` stride만 허용한다
-- goal 방향과 반대되는 X stride는 허용하지 않음
-- 여러 Y 스텝이 이어지면 매 스텝마다 `2 × lineDelta` 규칙으로 X 이동 → 점진적 접근
-
-### 골 방향 X 분산
-- 경로 플래너는 각 vertical step을 현재 위치 기준으로 다시 잡아서, source line에서 과하게 미리 달리지 않는다
-- goal 방향 stride가 가능하면 그 방향으로 정확히 `2 × lineDelta` 컬럼 이동한다
-- goal과 X가 이미 정렬된 상태에서도, 뒤에 남은 Y 스텝이 있으면 임시 대각선을 한 번 쓰고 다음 스텝에서 다시 goal X로 정렬할 수 있다
-- same-X 상황에서 좌우가 모두 가능하면 현재 바라보는 방향을 우선 사용해 고정 편향을 줄인다
-- 마지막 vertical step에서는 굳이 억지 대각선을 만들지 않고 goal X에 맞춘다
+- **수직 이동 범위:** 위/아래 최대 `maxJumpLines` (기본 `3`줄)까지 점프/낙하할 수 있습니다.
+- **수평 이동 폭:** 수직 이동 시 착지 열은 `fromCol` (직선) 또는 `fromCol ± (2 × lineDelta)` (대각선) 중 목표 줄의 유효한 바닥 위 좌표만 허용합니다.
+- **수직 장애물 검사:** 출발 줄과 목표 줄 사이의 중간 줄에 고체 문자(`isSolidChar`)가 가로막고 있으면 통과할 수 없으며, 빈 열로 우회하거나 중간 줄을 거쳐 이동해야 합니다.
+- **도달 가능성 100% 일치:** 생선 스폰 후보는 단일 Dijkstra 탐색으로 계산하며, 선택된 생선까지는 동일한 그래프 위에서 A*로 `MoveStep[]`를 생성합니다.
 
 ---
 
 ## 규칙 4: 보이는 영역 제약 (Visible Range)
 
-> 고양이와 생선은 스폰 라인이 속한 **연속 visible segment 하나** 안에서만 동작한다.
+> 고양이와 생선은 커서/스폰 라인이 속한 **단일 연속 visible segment** 안에서만 동작합니다.
 
-- extension은 `TextEditor.visibleRanges` 전체를 그대로 쓰지 않고, 현재 cursor/spawn line이 속한 **하나의 연속 구간**만 선택한다
-- 따라서 folded/hidden gap을 사이에 둔 다른 visible 구간은 이번 세션의 이동/생성 범위에서 제외된다
-- 선택된 구간 밖 라인은 `isEmptyLine() = true`로 처리한다
-- 생선도 선택된 연속 visible segment 안에서만 생성된다
+- `visible-range.ts`가 `TextEditor.visibleRanges` 중 현재 포커스 라인이 속한 하나의 연속 구간만 선택합니다.
+- 접힌 코드(fold) 등으로 분리된 다른 구간은 이번 세션의 이동/생선 스폰 대상에서 제외됩니다.
 
 ---
 
-## 규칙 5: 경로 규칙 (Route Rules)
+## 규칙 5: 먹기 후 대기와 수면 (Session Loop)
 
-> A* 경로 탐색은 라인 단위, 실제 X 이동은 run으로 수행.
-
-- jump/fall은 수직 이동 + 제한된 수평 이동
-- 큰 수평 이동이 필요하면 해당 라인에서 **run**으로 이동 후 jump/fall
-- 생선은 실제 목표 `(line, col)`까지 경로가 성립하는 위치에만 생성
-- 단순히 같은 line이 reachable한 것만으로는 충분하지 않다
-- 현재 위치에서 유효한 생선 후보가 하나도 없으면 고양이는 아예 스폰되지 않는다
-- 이미 스폰된 생선이 3회 연속 경로 실패하면 포기
+- 목표 줄에 안착(`|line - fish.line| < 0.01`)하고 생선과 인접(`|col - fish.col| < 1.5`)하면 `eat`(2단계) 상태로 진입합니다.
+- 같은 세션 내에서는 `post_eat` 포즈로 다음 생선을 대기합니다.
+- `fishSessionCount`만큼 연속으로 먹으면 `sleep` 상태로 전환해 `sleepTime` 동안 휴식한 뒤 다음 세션을 시작합니다.
 
 ---
 
-## 규칙 6: 먹기 후 대기와 수면
+## 테스트 보호 범위
 
-> 같은 세션 안에서는 생선을 먹은 직후 다음 생선이 뜰 때까지 마지막 먹기 포즈를 유지하고, 세션이 끝나면 sleep으로 쉰다.
-
-- `eat` 애니메이션 2단계가 끝나면 `post_eat` 상태로 전환
-- `post_eat` 상태에서는 마지막 `eat` 프레임을 고정해 표시
-- 세션 카운트(`fishSessionCount`)를 모두 채우면 `sleep` 상태로 전환
-- `sleepTime`이 지나 다음 생선이 스폰되면 `surprise`로 넘어가 다시 추적을 시작
-
----
-
-## 규칙 충돌 해결 순서
-
-1. 🔴 텍스트 제약 (절대)
-2. 이동 연속성 (adaptive speed)
-3. 🟡 Per-line 수평 제한 (최선 노력)
-4. 보이는 영역 제약
-
----
-
-## 테스트 반영
-
-아래 테스트들이 현재 규칙을 직접 보호한다.
-
-| 규칙 | 테스트 |
-|------|--------|
-| 텍스트 위 유지 / 연속성 | `testMovementStaysOnTextAndContinuous` |
-| same-y 내부 공백 run 허용 | `testSameLineRunTreatsInteriorSpacesAsTraversable` |
-| vertical stride = `0` 또는 `2 × lineDelta` | `testVerticalLandingsUseOnlyZeroOrFixedStride` |
-| goal 방향 짧은 diagonal 접근 | `testGoalDirectedRouteUsesProgressiveDiagonalStride` |
-| same-X 임시 diagonal 후 goal 정렬 | `testAlignedGoalRouteUsesTemporaryDiagonalThenSettles` |
-| multi-line scaled stride / zero fallback | `testMultiLineVerticalStrideScalesWithLineDistance`, `testMultiLineVerticalStrideFallsBackToZeroWhenLandingIsImpossible` |
-| landing pause | `testLandingPauseSeparatesConsecutiveVerticalMoves` |
-| visible range 제약 | `testVisibleRangeConstraint`, `testActiveVisibleRangeSelectionSkipsHiddenGapLines` |
-| exact fish reachability spawn | `testFishSpawnCandidatesRequireExactReachability` |
-| no-fish-candidate spawn skip 전제 | `testCanSpawnFishFromCurrentPositionDetectsEmptyChaseCases` |
-| post-eat / session sleep | `testPostEatHoldsLastPoseUntilRespawn`, `testSessionEndSleepsUntilRespawn` |
+| 대상 | 테스트 파일 |
+| :--- | :--- |
+| 바닥 색인 / 16칸 공백 분리 / Visible Range | `src/terrain-grid.test.ts`, `src/visible-range.test.ts` |
+| A* 경로 / Dijkstra 도달 가능성 일치 | `src/pathfinder.test.ts` |
+| 보간 연속성 / 착지 포즈 | `src/step-animator.test.ts` |
+| 상태 머신 / 세션 루프 / 리셋 | `src/cat-state-machine.test.ts` |
+| 스프라이트 로딩 / 색상 치환 | `src/sprite-manager.test.ts` |
+| 종단 간 행동 시나리오 (9종, `demo/*.ts` 포함) | `src/scenarios.test.ts` |
+| VS Code Extension Host 통합 테스트 | `src/integration/suite.ts` |
